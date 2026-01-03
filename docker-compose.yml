@@ -1,0 +1,14 @@
+version: '3.9'
+services:
+  bot:
+    build: .
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME}
+      SPREADSHEET_ID: ${SPREADSHEET_ID}
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa.json
+      AUDIT_GROUP_ID: ${AUDIT_GROUP_ID}
+      TZ: ${TZ:-Europe/Kyiv}
+    volumes:
+      - ./secrets/sa.json:/secrets/sa.json:ro
+    restart: unless-stopped
