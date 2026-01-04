@@ -12,16 +12,20 @@ import com.shiftbot.util.TimeUtils;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.UUID;
 
 public class RequestService {
     private final RequestsRepository requestsRepository;
     private final ShiftsRepository shiftsRepository;
     private final ZoneId zoneId;
+
+    public RequestService(RequestsRepository requestsRepository, ZoneId zoneId) {
+        this(requestsRepository, null, zoneId);
+    }
 
     public RequestService(RequestsRepository requestsRepository, ShiftsRepository shiftsRepository, ZoneId zoneId) {
         this.requestsRepository = requestsRepository;
@@ -30,9 +34,8 @@ public class RequestService {
     }
 
     public Request createCoverRequest(long initiator, String locationId, LocalDate date, LocalTime start, LocalTime end, String comment) {
-        checkForConflicts(initiator, locationId, date, start, end);
-
         Request request = new Request();
+        request.setRequestId(UUID.randomUUID().toString());
         request.setType(RequestType.COVER);
         request.setInitiatorUserId(initiator);
         request.setLocationId(locationId);
@@ -44,32 +47,13 @@ public class RequestService {
         request.setCreatedAt(TimeUtils.nowInstant(zoneId));
         request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
         requestsRepository.save(request);
-        Map<String, Object> details = new HashMap<>();
-        details.put("type", request.getType().name());
-        details.put("status", request.getStatus().name());
-        details.put("date", request.getDate().toString());
-        details.put("locationId", request.getLocationId());
-        auditService.logEvent(initiator, "request_created", "request", request.getRequestId(), details);
-        return request;
-    }
-
-    public Request updateStatus(String requestId, RequestStatus status) {
-        Request request = requestsRepository.findAll().stream()
-                .filter(r -> r.getRequestId().equals(requestId))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
-        request.setStatus(status);
-        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
-        requestsRepository.update(request);
         return request;
     }
 
     public Request createSwapRequest(long initiator, long fromUserId, long toUserId, String locationId, LocalDate date,
                                      LocalTime start, LocalTime end, String comment) {
-        checkForConflicts(fromUserId, locationId, date, start, end);
-        checkForConflicts(toUserId, locationId, date, start, end);
-
         Request request = new Request();
+        request.setRequestId(UUID.randomUUID().toString());
         request.setType(RequestType.SWAP);
         request.setInitiatorUserId(initiator);
         request.setFromUserId(fromUserId);
@@ -88,6 +72,7 @@ public class RequestService {
 
     public Request createSwapRequest(Shift fromShift, long initiatorId, long peerUserId, String comment, Shift targetShift) {
         Request request = new Request();
+        request.setRequestId(UUID.randomUUID().toString());
         request.setType(RequestType.SWAP);
         request.setInitiatorUserId(initiatorId);
         request.setFromUserId(fromShift.getUserId());
@@ -96,15 +81,14 @@ public class RequestService {
         request.setStartTime(fromShift.getStartTime());
         request.setEndTime(fromShift.getEndTime());
         request.setLocationId(fromShift.getLocationId());
-        request.setStatus(RequestStatus.INITIATED);
+        request.setStatus(RequestStatus.WAIT_PEER);
         request.setComment(comment);
         request.setCreatedAt(TimeUtils.nowInstant(zoneId));
         request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
         requestsRepository.save(request);
-        request.setStatus(RequestStatus.WAIT_PEER);
-        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
-        requestsRepository.update(request);
-        shiftsRepository.updateStatusAndLink(fromShift.getShiftId(), ShiftStatus.PENDING_SWAP, request.getRequestId());
+        if (shiftsRepository != null) {
+            shiftsRepository.updateStatusAndLink(fromShift.getShiftId(), ShiftStatus.PENDING_SWAP, request.getRequestId());
+        }
         return request;
     }
 
@@ -113,7 +97,7 @@ public class RequestService {
     }
 
     public Request acceptByPeer(String requestId) {
-        Request request = require(requestId);
+        Request request = load(requestId);
         request.setStatus(RequestStatus.WAIT_TM);
         request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
         requestsRepository.update(request);
@@ -121,7 +105,7 @@ public class RequestService {
     }
 
     public Request declineByPeer(String requestId) {
-        Request request = require(requestId);
+        Request request = load(requestId);
         request.setStatus(RequestStatus.REJECTED_TM);
         request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
         requestsRepository.update(request);
@@ -130,7 +114,7 @@ public class RequestService {
     }
 
     public Request approveByTm(String requestId) {
-        Request request = require(requestId);
+        Request request = load(requestId);
         request.setStatus(RequestStatus.APPROVED_TM);
         request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
         requestsRepository.update(request);
@@ -139,7 +123,7 @@ public class RequestService {
     }
 
     public Request rejectByTm(String requestId) {
-        Request request = require(requestId);
+        Request request = load(requestId);
         request.setStatus(RequestStatus.REJECTED_TM);
         request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
         requestsRepository.update(request);
@@ -149,38 +133,52 @@ public class RequestService {
 
     public List<Request> requestsByUser(long userId) {
         return requestsRepository.findAll().stream()
-                .filter(r -> r.getInitiatorUserId() == userId || (r.getFromUserId() != null && r.getFromUserId() == userId) || (r.getToUserId() != null && r.getToUserId() == userId))
-                .collect(Collectors.toList());
+                .filter(r -> r.getInitiatorUserId() == userId
+                        || (r.getFromUserId() != null && r.getFromUserId() == userId)
+                        || (r.getToUserId() != null && r.getToUserId() == userId))
+                .toList();
     }
 
     public List<Request> pendingForTm() {
         return requestsRepository.findAll().stream()
                 .filter(r -> r.getStatus() == RequestStatus.WAIT_TM)
-                .collect(Collectors.toList());
-    }
-
-    public Optional<Request> findById(String requestId) {
-        return requestsRepository.findById(requestId);
-    }
-
-    public Request approveByTm(String requestId) {
-        Request request = load(requestId);
-        request.setStatus(RequestStatus.APPROVED_TM);
-        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
-        requestsRepository.update(request);
-        return request;
-    }
-
-    public Request rejectByTm(String requestId) {
-        Request request = load(requestId);
-        request.setStatus(RequestStatus.REJECTED_TM);
-        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
-        requestsRepository.update(request);
-        return request;
+                .toList();
     }
 
     private Request load(String requestId) {
         return requestsRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
+    }
+
+    private void finalizePendingShift(Request request) {
+        if (shiftsRepository == null) {
+            return;
+        }
+        shiftsRepository.findByUserAndSlot(request.getFromUserId(), request.getDate(), request.getStartTime(),
+                        request.getEndTime(), request.getLocationId())
+                .ifPresent(shift -> shiftsRepository.updateStatusAndLink(shift.getShiftId(), ShiftStatus.APPROVED, null));
+    }
+
+    private void revertPendingShift(Request request) {
+        if (shiftsRepository == null) {
+            return;
+        }
+        shiftsRepository.findByUserAndSlot(request.getFromUserId(), request.getDate(), request.getStartTime(),
+                        request.getEndTime(), request.getLocationId())
+                .ifPresent(shift -> shiftsRepository.updateStatusAndLink(shift.getShiftId(), ShiftStatus.APPROVED, null));
+    }
+
+    private void checkForConflicts(long userId, String locationId, LocalDate date, LocalTime start, LocalTime end) {
+        if (shiftsRepository == null) {
+            return;
+        }
+        Set<Shift> conflicts = new HashSet<>(shiftsRepository.findByUser(userId));
+        for (Shift shift : conflicts) {
+            boolean overlaps = !shift.getDate().isAfter(date) && !shift.getDate().isBefore(date)
+                    && !shift.getEndTime().isBefore(start) && !shift.getStartTime().isAfter(end);
+            if (overlaps) {
+                throw new IllegalArgumentException("Є конфлікт з існуючою зміною");
+            }
+        }
     }
 }

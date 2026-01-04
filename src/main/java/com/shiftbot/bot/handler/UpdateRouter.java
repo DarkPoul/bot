@@ -2,18 +2,20 @@ package com.shiftbot.bot.handler;
 
 import com.shiftbot.bot.BotNotificationPort;
 import com.shiftbot.bot.ui.CalendarKeyboardBuilder;
+import com.shiftbot.model.Location;
 import com.shiftbot.model.Request;
 import com.shiftbot.model.Shift;
 import com.shiftbot.model.User;
-import com.shiftbot.model.Location;
-import com.shiftbot.model.Request;
+import com.shiftbot.model.enums.RequestStatus;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.ShiftStatus;
-import com.shiftbot.state.ConversationStateStore;
+import com.shiftbot.model.enums.UserStatus;
+import com.shiftbot.repository.LocationsRepository;
+import com.shiftbot.repository.UsersRepository;
+import com.shiftbot.service.AuditService;
 import com.shiftbot.service.AuthService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
-import com.shiftbot.repository.LocationsRepository;
 import com.shiftbot.state.ConversationState;
 import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
@@ -26,6 +28,7 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -35,32 +38,89 @@ public class UpdateRouter {
     private final AuthService authService;
     private final ScheduleService scheduleService;
     private final RequestService requestService;
-    private final UsersRepository usersRepository;
-    private final ConversationStateStore stateStore;
-    private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final LocationsRepository locationsRepository;
+    private final UsersRepository usersRepository;
+    private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final ConversationStateStore stateStore;
     private final CoverRequestFsm coverRequestFsm;
     private final AuditService auditService;
     private final ZoneId zoneId;
-    private final ConversationStateStore conversationStateStore;
-    private final CoverRequestConversationHandler coverRequestConversationHandler;
 
-    public UpdateRouter(AuthService authService, ScheduleService scheduleService, RequestService requestService,
-                        CalendarKeyboardBuilder calendarKeyboardBuilder, ZoneId zoneId, ConversationStateStore conversationStateStore) {
+    public UpdateRouter(AuthService authService,
+                        ScheduleService scheduleService,
+                        RequestService requestService,
+                        CalendarKeyboardBuilder calendarKeyboardBuilder,
+                        ZoneId zoneId) {
+        this(authService, scheduleService, requestService, null, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), null, zoneId);
+    }
+
+    public UpdateRouter(AuthService authService,
+                        ScheduleService scheduleService,
+                        RequestService requestService,
+                        UsersRepository usersRepository,
+                        AuditService auditService,
+                        CalendarKeyboardBuilder calendarKeyboardBuilder,
+                        ZoneId zoneId) {
+        this(authService, scheduleService, requestService, null, usersRepository, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), auditService, zoneId);
+    }
+
+    public UpdateRouter(AuthService authService,
+                        ScheduleService scheduleService,
+                        RequestService requestService,
+                        UsersRepository usersRepository,
+                        ConversationStateStore stateStore,
+                        CalendarKeyboardBuilder calendarKeyboardBuilder,
+                        ZoneId zoneId) {
+        this(authService, scheduleService, requestService, null, usersRepository, calendarKeyboardBuilder,
+                stateStore, new CoverRequestFsm(), null, zoneId);
+    }
+
+    public UpdateRouter(AuthService authService,
+                        ScheduleService scheduleService,
+                        RequestService requestService,
+                        LocationsRepository locationsRepository,
+                        UsersRepository usersRepository,
+                        CalendarKeyboardBuilder calendarKeyboardBuilder,
+                        ZoneId zoneId) {
+        this(authService, scheduleService, requestService, locationsRepository, usersRepository, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), null, zoneId);
+    }
+
+    public UpdateRouter(AuthService authService,
+                        ScheduleService scheduleService,
+                        RequestService requestService,
+                        CalendarKeyboardBuilder calendarKeyboardBuilder,
+                        LocationsRepository locationsRepository,
+                        ConversationStateStore stateStore,
+                        CoverRequestFsm coverRequestFsm,
+                        AuditService auditService,
+                        ZoneId zoneId) {
+        this(authService, scheduleService, requestService, locationsRepository, null, calendarKeyboardBuilder,
+                stateStore, coverRequestFsm, auditService, zoneId);
+    }
+
+    public UpdateRouter(AuthService authService,
+                        ScheduleService scheduleService,
+                        RequestService requestService,
+                        LocationsRepository locationsRepository,
+                        UsersRepository usersRepository,
+                        CalendarKeyboardBuilder calendarKeyboardBuilder,
+                        ConversationStateStore stateStore,
+                        CoverRequestFsm coverRequestFsm,
+                        AuditService auditService,
+                        ZoneId zoneId) {
         this.authService = authService;
         this.scheduleService = scheduleService;
         this.requestService = requestService;
-        this.usersRepository = usersRepository;
-        this.stateStore = stateStore;
-        this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.locationsRepository = locationsRepository;
+        this.usersRepository = usersRepository;
+        this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.stateStore = stateStore;
         this.coverRequestFsm = coverRequestFsm;
         this.auditService = auditService;
         this.zoneId = zoneId;
-        this.conversationStateStore = conversationStateStore;
-        this.coverRequestConversationHandler = new CoverRequestConversationHandler(conversationStateStore, requestService, zoneId);
     }
 
     public void handle(Update update, BotNotificationPort bot) {
@@ -74,8 +134,8 @@ public class UpdateRouter {
     private void handleMessage(Message message, BotNotificationPort bot) {
         Long chatId = message.getChatId();
         String text = message.getText();
-        User user = authService.onboard(chatId, message.getFrom().getUserName(), buildFullName(message));
-        Optional<ConversationState> state = stateStore.get(chatId);
+        AuthService.OnboardResult onboard = authService.onboard(chatId, message.getFrom().getUserName(), buildFullName(message));
+        User user = onboard.user();
 
         if (isAbortCommand(text)) {
             stateStore.clear(chatId);
@@ -83,24 +143,17 @@ public class UpdateRouter {
             return;
         }
 
-        if (state.isPresent() && coverRequestFsm.supports(state.get())) {
-            if (handleCoverMessage(user, message, state.get(), bot)) {
+        Optional<ConversationState> stateOpt = stateStore.get(chatId);
+        if (stateOpt.isPresent() && coverRequestFsm.supports(stateOpt.get())) {
+            if (handleCoverMessage(user, text, stateOpt.get(), bot)) {
                 return;
             }
         }
 
         if (text.startsWith("/start")) {
-            bot.sendMarkdown(chatId, "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!", mainMenu(user));
-            return;
-        }
-
-        if (isCancel(text)) {
-            coverRequestConversationHandler.handleUserInput(user, text, bot);
-            return;
-        }
-
-        if (coverRequestConversationHandler.hasConversation(user.getUserId())) {
-            coverRequestConversationHandler.handleUserInput(user, text, bot);
+            String welcome = onboard.message() != null ? onboard.message() :
+                    "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!";
+            bot.sendMarkdown(chatId, welcome, mainMenu(user));
             return;
         }
 
@@ -108,6 +161,7 @@ public class UpdateRouter {
             case "Мій графік", "📅 Мій графік" -> sendMySchedule(user, bot);
             case "Потрібна заміна", "🆘 Потрібна заміна" -> startCoverFlow(user, bot);
             case "📥 Мої заявки" -> sendTmRequests(user, bot);
+            case "🔁 Підміни" -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
             default -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
         }
     }
@@ -115,11 +169,13 @@ public class UpdateRouter {
     private void handleCallback(CallbackQuery callback, BotNotificationPort bot) {
         String data = callback.getData();
         Long chatId = callback.getMessage().getChatId();
-        User user = authService.onboard(chatId, callback.getFrom().getUserName(), buildFullName(callback.getFrom().getFirstName(), callback.getFrom().getLastName()));
-        Optional<ConversationState> state = stateStore.get(chatId);
+        AuthService.OnboardResult onboard = authService.onboard(chatId, callback.getFrom().getUserName(),
+                buildFullName(callback.getFrom().getFirstName(), callback.getFrom().getLastName()));
+        User user = onboard.user();
 
-        if (state.isPresent() && coverRequestFsm.supports(state.get()) && data.startsWith("cover:")) {
-            handleCoverCallback(user, callback, state.get(), bot);
+        Optional<ConversationState> stateOpt = stateStore.get(chatId);
+        if (stateOpt.isPresent() && coverRequestFsm.supports(stateOpt.get()) && data.startsWith("cover:")) {
+            handleCoverCallback(user, callback, stateOpt.get(), bot);
             return;
         }
 
@@ -139,21 +195,6 @@ public class UpdateRouter {
                 }
                 bot.sendMarkdown(chatId, MarkdownEscaper.escape(sb.toString()), null);
             }
-        } else if (data.startsWith("swapDate:")) {
-            LocalDate date = LocalDate.parse(data.substring("swapDate:".length()));
-            showSwapShifts(user, date, bot);
-        } else if (data.startsWith("swapShift:")) {
-            String[] parts = data.split(":", 3);
-            if (parts.length == 3) {
-                LocalDate date = LocalDate.parse(parts[1]);
-                String shiftId = parts[2];
-                handleSwapShift(user, date, shiftId, bot);
-            }
-        } else if (data.startsWith("swapPeer:")) {
-            long peerId = Long.parseLong(data.substring("swapPeer:".length()));
-            handleSwapPeer(user, peerId, bot);
-        } else if (data.startsWith("swapTarget:")) {
-            handleSwapTarget(user, data.substring("swapTarget:".length()), bot);
         } else if (data.startsWith("swapPeerAccept:")) {
             handlePeerDecision(user, data.substring("swapPeerAccept:".length()), true, bot);
         } else if (data.startsWith("swapPeerDecline:")) {
@@ -163,7 +204,12 @@ public class UpdateRouter {
         } else if (data.startsWith("swapTmReject:")) {
             handleTmDecision(data.substring("swapTmReject:".length()), false, bot);
         } else if ("noop".equals(data)) {
-            coverRequestConversationHandler.handleNoop(chatId, bot);
+            stateStore.touch(chatId);
+            bot.sendMarkdown(chatId, "⏳ Очікуємо на ваш ввід", null);
+        } else if (data.startsWith("cover:date:")) {
+            handleCoverCallback(user, callback, stateOpt.orElse(coverRequestFsm.start()), bot);
+        } else if (data.startsWith("cover:loc:")) {
+            handleCoverCallback(user, callback, stateOpt.orElse(coverRequestFsm.start()), bot);
         } else if (data.startsWith("cover:")) {
             LocalDate date = LocalDate.parse(data.substring("cover:".length()));
             requestService.createCoverRequest(user.getUserId(), "unknown", date, TimeUtils.DEFAULT_START, TimeUtils.DEFAULT_END, "Авто створено з меню");
@@ -176,14 +222,12 @@ public class UpdateRouter {
                 case "requests" -> sendTmRequests(user, bot);
                 default -> bot.sendMarkdown(chatId, "Меню в розробці", null);
             }
-        } else if (data.startsWith("request:approve:")) {
-            handleTmDecision(user, data.substring("request:approve:".length()), true, bot);
-        } else if (data.startsWith("request:reject:")) {
-            handleTmDecision(user, data.substring("request:reject:".length()), false, bot);
-        } else if (data.startsWith("cover:")) {
-            ConversationState newState = coverRequestFsm.start();
-            stateStore.put(user.getUserId(), newState);
-            handleCoverCallback(user, callback, newState, bot);
+        } else if (data.startsWith("user:activate:")) {
+            handleUserStatusChange(user, data, true, bot);
+        } else if (data.startsWith("user:reject:")) {
+            handleUserStatusChange(user, data, false, bot);
+        } else if (data.startsWith("location:")) {
+            handleLocationCallback(user, data, bot);
         }
     }
 
@@ -195,23 +239,50 @@ public class UpdateRouter {
         bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), calendar);
     }
 
-    private void sendCoverRequestIntro(User user, BotNotificationPort bot) {
-        coverRequestConversationHandler.start(user, bot);
-    }
-
-    private InlineKeyboardMarkup mainMenu(User user) {
+    public void sendLocationPicker(User user, BotNotificationPort bot) {
+        if (locationsRepository == null) {
+            bot.sendMarkdown(user.getUserId(), "Локації недоступні", null);
+            return;
+        }
+        List<Location> locations = locationsRepository.findAll();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(buttonRow("📅 Мій графік", "M::my"));
-        rows.add(buttonRow("🏪 Графік локації", "M::location"));
-        rows.add(buttonRow("🔁 Підміни", "M::swap"));
-        rows.add(buttonRow("🆘 Потрібна заміна", "M::cover"));
-        if (user.getRole() == Role.TM || user.getRole() == Role.SENIOR) {
-            rows.add(buttonRow("📥 Мої заявки", "M::requests"));
-            rows.add(buttonRow("⏳ Нові користувачі", "M::pendingUsers"));
+        for (Location location : locations) {
+            rows.add(Collections.singletonList(
+                    InlineKeyboardButton.builder()
+                            .text(location.getName())
+                            .callbackData("location_pick:" + location.getLocationId())
+                            .build()
+            ));
         }
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
-        return markup;
+        bot.sendMarkdown(user.getUserId(), "Оберіть локацію", markup);
+    }
+
+    private void handleLocationCallback(User user, String data, BotNotificationPort bot) {
+        if (locationsRepository == null) {
+            return;
+        }
+        String[] parts = data.split(":");
+        if (parts.length != 3) {
+            return;
+        }
+        String locationId = parts[1];
+        LocalDate date = LocalDate.parse(parts[2]);
+        List<Shift> shifts = scheduleService.shiftsForLocation(locationId, date);
+        if (shifts.isEmpty()) {
+            bot.sendMarkdown(user.getUserId(), "Немає графіку для обраної дати", null);
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("📍 ").append(locationId).append(" ").append(TimeUtils.humanDate(date, zoneId)).append("\\n");
+        for (Shift shift : shifts) {
+            String name = usersRepository != null
+                    ? usersRepository.findById(shift.getUserId()).map(User::getFullName).orElse("Невідомо")
+                    : String.valueOf(shift.getUserId());
+            sb.append("• ").append(name).append(" — ").append(TimeUtils.humanTimeRange(shift.getStartTime(), shift.getEndTime())).append("\\n");
+        }
+        bot.sendMarkdown(user.getUserId(), sb.toString(), null);
     }
 
     private void sendTmRequests(User user, BotNotificationPort bot) {
@@ -244,43 +315,136 @@ public class UpdateRouter {
         bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text.toString()), markup);
     }
 
-    private void handleTmDecision(User user, String requestId, boolean approve, BotNotificationPort bot) {
-        if (user.getRole() != Role.TM && user.getRole() != Role.SENIOR) {
-            bot.sendMarkdown(user.getUserId(), "⛔ Недостатньо прав", null);
-            return;
-        }
+    private void handleTmDecision(String requestId, boolean approve, BotNotificationPort bot) {
         try {
             Request updated = approve ? requestService.approveByTm(requestId) : requestService.rejectByTm(requestId);
             String action = approve ? "✅ Заявка погоджена" : "❌ Заявка відхилена";
-            String response = MarkdownEscaper.escape(action + "\n" + formatRequest(updated));
-            bot.sendMarkdown(user.getUserId(), response, null);
-            bot.sendMarkdown(updated.getInitiatorUserId(), MarkdownEscaper.escape("ℹ️ ТМ оновив вашу заявку\n" + formatRequest(updated)), null);
-            auditService.logEvent(user.getUserId(), action, "REQUEST", updated.getRequestId(), Map.of(
-                    "status", updated.getStatus().name(),
-                    "initiator", updated.getInitiatorUserId()
-            ));
+            bot.sendMarkdown(updated.getInitiatorUserId(), MarkdownEscaper.escape(action + "\n" + formatRequest(updated)), null);
         } catch (Exception e) {
-            bot.sendMarkdown(user.getUserId(), "⚠️ Помилка: " + MarkdownEscaper.escape(e.getMessage()), null);
+            bot.sendMarkdown(null, "⚠️ Помилка: " + MarkdownEscaper.escape(e.getMessage()), null);
         }
     }
 
-    private List<InlineKeyboardButton> buttonRow(String text, String callback) {
-        return Collections.singletonList(InlineKeyboardButton.builder().text(text).callbackData(callback).build());
+    private void handlePeerDecision(User peer, String requestId, boolean accept, BotNotificationPort bot) {
+        Optional<Request> requestOpt = requestService.findById(requestId);
+        if (requestOpt.isEmpty()) {
+            return;
+        }
+        Request request = requestOpt.get();
+        if (request.getToUserId() == null || request.getToUserId() != peer.getUserId()) {
+            bot.sendMarkdown(peer.getUserId(), "⛔ Недостатньо прав", null);
+            return;
+        }
+        Request updated = accept ? requestService.acceptByPeer(requestId) : requestService.declineByPeer(requestId);
+        if (accept) {
+            notifyTmAboutSwap(updated, bot);
+        } else {
+            bot.sendMarkdown(updated.getInitiatorUserId(), "Підміна відхилено", null);
+        }
     }
 
-    private String statusLabel(ShiftStatus status) {
-        return switch (status) {
-            case APPROVED -> "Затверджено";
-            case PENDING_TM -> "Очікує ТМ";
-            case PENDING_SWAP -> "Очікує підміну";
-            case DRAFT -> "Чернетка";
-            case CANCELED -> "Скасовано";
-        };
+    private void notifyTmAboutSwap(Request request, BotNotificationPort bot) {
+        if (usersRepository == null) {
+            return;
+        }
+        List<User> tms = usersRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.TM || u.getRole() == Role.SENIOR)
+                .toList();
+        for (User tm : tms) {
+            bot.sendMarkdown(tm.getUserId(), "Підміна очікує підтвердження", null);
+        }
+    }
+
+    private void startCoverFlow(User user, BotNotificationPort bot) {
+        ConversationState newState = coverRequestFsm.start();
+        stateStore.put(user.getUserId(), newState);
+        LocalDate today = TimeUtils.today(zoneId);
+        InlineKeyboardMarkup markup = calendarKeyboardBuilder.buildMonth(today, Map.of(), "cover:date:");
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>(markup.getKeyboard());
+        rows.add(Collections.singletonList(
+                InlineKeyboardButton.builder()
+                        .text("🚑 Попросити заміну на завтра")
+                        .callbackData("cover:" + today.plusDays(1))
+                        .build()
+        ));
+        markup.setKeyboard(rows);
+        bot.sendMarkdown(user.getUserId(), "🆘 Потрібна заміна? Оберіть дату", markup);
+    }
+
+    private void handleCoverCallback(User user, CallbackQuery callback, ConversationState state, BotNotificationPort bot) {
+        String data = callback.getData();
+        if (data.startsWith("cover:date:")) {
+            LocalDate date = LocalDate.parse(data.substring("cover:date:".length()));
+            Map<String, String> extra = Map.of(CoverRequestFsm.DATE_KEY, date.toString());
+            ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.TIME, extra);
+            stateStore.put(user.getUserId(), next);
+            bot.sendMarkdown(user.getUserId(), "Вкажіть час у форматі HH:mm-HH:mm", null);
+        } else if (data.startsWith("cover:loc:")) {
+            Map<String, String> extra = Map.of(CoverRequestFsm.LOCATION_KEY, data.substring("cover:loc:".length()));
+            ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.COMMENT, extra);
+            stateStore.put(user.getUserId(), next);
+            bot.sendMarkdown(user.getUserId(), "Додайте коментар", null);
+        }
+    }
+
+    private boolean handleCoverMessage(User user, String text, ConversationState state, BotNotificationPort bot) {
+        CoverRequestFsm.Step step = coverRequestFsm.currentStep(state);
+        switch (step) {
+            case TIME -> {
+                Optional<LocalTime[]> parsed = parseTimeRange(text);
+                if (parsed.isEmpty()) {
+                    bot.sendMarkdown(user.getUserId(), "Некоректний час, введіть у форматі HH:mm-HH:mm", null);
+                    return true;
+                }
+                Map<String, String> extra = new HashMap<>();
+                extra.put(CoverRequestFsm.START_KEY, parsed.get()[0].toString());
+                extra.put(CoverRequestFsm.END_KEY, parsed.get()[1].toString());
+                ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.LOCATION, extra);
+                stateStore.put(user.getUserId(), next);
+                InlineKeyboardMarkup markup = buildLocationsKeyboard();
+                bot.sendMarkdown(user.getUserId(), "Оберіть локацію", markup);
+                return true;
+            }
+            case COMMENT -> {
+                LocalDate date = LocalDate.parse(state.getData().get(CoverRequestFsm.DATE_KEY));
+                LocalTime start = LocalTime.parse(state.getData().get(CoverRequestFsm.START_KEY));
+                LocalTime end = LocalTime.parse(state.getData().get(CoverRequestFsm.END_KEY));
+                String locationId = state.getData().getOrDefault(CoverRequestFsm.LOCATION_KEY, "unknown");
+                requestService.createCoverRequest(user.getUserId(), locationId, date, start, end, text);
+                bot.sendMarkdown(user.getUserId(), "Заявка на заміну створена та очікує ТМ", null);
+                stateStore.clear(user.getUserId());
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    private InlineKeyboardMarkup buildLocationsKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (locationsRepository != null) {
+            for (Location location : locationsRepository.findActive()) {
+                rows.add(Collections.singletonList(
+                        InlineKeyboardButton.builder()
+                                .text(location.getName())
+                                .callbackData("cover:loc:" + location.getLocationId())
+                                .build()
+                ));
+            }
+        }
+        markup.setKeyboard(rows);
+        return markup;
     }
 
     private void handleUserStatusChange(User actor, String data, boolean activate, BotNotificationPort bot) {
         if (actor.getRole() != Role.TM && actor.getRole() != Role.SENIOR) {
             bot.sendMarkdown(actor.getUserId(), "⛔ Недостатньо прав для цієї дії", null);
+            return;
+        }
+        if (usersRepository == null) {
+            bot.sendMarkdown(actor.getUserId(), "⛔ Репозиторій користувачів недоступний", null);
             return;
         }
         long targetId;
@@ -297,44 +461,50 @@ public class UpdateRouter {
         }
         User target = targetOpt.get();
         UserStatus newStatus = activate ? UserStatus.ACTIVE : UserStatus.BLOCKED;
-        if (target.getStatus() == newStatus) {
-            bot.sendMarkdown(actor.getUserId(), "Статус вже " + newStatus.name(), null);
-            return;
-        }
         User updated = new User(target.getUserId(), target.getUsername(), target.getFullName(), target.getPhone(), target.getRole(), newStatus, target.getCreatedAt(), target.getCreatedBy());
         usersRepository.updateRow(target.getUserId(), updated);
-        auditService.logEvent(actor.getUserId(), activate ? "user_activated" : "user_rejected", "user", String.valueOf(target.getUserId()), Map.of("previousStatus", target.getStatus().name(), "newStatus", newStatus.name()), bot);
-        bot.sendMarkdown(actor.getUserId(), MarkdownEscaper.escape("Статус " + target.getFullName() + " → " + newStatus.name()), null);
+        if (auditService != null) {
+            auditService.logEvent(actor.getUserId(), activate ? "user_activated" : "user_rejected", "user", String.valueOf(target.getUserId()), Map.of("previousStatus", target.getStatus().name(), "newStatus", newStatus.name()), bot);
+        }
+        bot.sendMarkdown(actor.getUserId(), MarkdownEscaper.escape((activate ? "✅ " : "⛔ ") + target.getFullName()), null);
         bot.sendMarkdown(target.getUserId(), activate ? "✅ Ваш профіль активовано" : "⛔ Ваш профіль відхилено", null);
     }
 
-    private void sendPendingUsers(User actor, BotNotificationPort bot) {
-        if (actor.getRole() != Role.TM && actor.getRole() != Role.SENIOR) {
-            bot.sendMarkdown(actor.getUserId(), "⛔ Недостатньо прав для цієї дії", null);
-            return;
-        }
-        List<User> pending = usersRepository.findAll().stream()
-                .filter(u -> u.getStatus() == UserStatus.PENDING)
-                .sorted(Comparator.comparing(User::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
-        if (pending.isEmpty()) {
-            bot.sendMarkdown(actor.getUserId(), "Немає користувачів у статусі PENDING", null);
-            return;
-        }
-        StringBuilder sb = new StringBuilder("⏳ Користувачі в статусі PENDING:\\n");
-        List<List<InlineKeyboardButton>> buttons = new ArrayList<>();
-        for (User pendingUser : pending) {
-            String username = pendingUser.getUsername() == null ? "" : " " + MarkdownEscaper.escape("(@" + pendingUser.getUsername() + ")");
-            sb.append("• ").append(MarkdownEscaper.escape(pendingUser.getFullName()))
-                    .append(username).append("\\n");
-            buttons.add(List.of(
-                    InlineKeyboardButton.builder().text("✅ " + pendingUser.getFullName()).callbackData("user:activate:" + pendingUser.getUserId()).build(),
-                    InlineKeyboardButton.builder().text("⛔").callbackData("user:reject:" + pendingUser.getUserId()).build()
-            ));
+    private List<InlineKeyboardButton> buttonRow(String text, String callback) {
+        return Collections.singletonList(InlineKeyboardButton.builder().text(text).callbackData(callback).build());
+    }
+
+    private String statusLabel(ShiftStatus status) {
+        return switch (status) {
+            case APPROVED -> "Затверджено";
+            case PENDING_TM -> "Очікує ТМ";
+            case PENDING_SWAP -> "Очікує підміну";
+            case DRAFT -> "Чернетка";
+            case CANCELED -> "Скасовано";
+        };
+    }
+
+    private String formatRequest(Request request) {
+        return TimeUtils.humanDate(request.getDate(), zoneId) + " " +
+                TimeUtils.humanTimeRange(request.getStartTime(), request.getEndTime()) + " | " +
+                request.getLocationId();
+    }
+
+    private String shortId(String requestId) {
+        if (requestId == null || requestId.length() < 4) return requestId;
+        return requestId.substring(0, 4);
+    }
+
+    private InlineKeyboardMarkup mainMenu(User user) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(buttonRow("📅 Мій графік", "M::my"));
+        rows.add(buttonRow("🆘 Потрібна заміна", "M::cover"));
+        if (user.getRole() == Role.TM || user.getRole() == Role.SENIOR) {
+            rows.add(buttonRow("📥 Мої заявки", "M::requests"));
         }
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        markup.setKeyboard(buttons);
-        bot.sendMarkdown(actor.getUserId(), sb.toString(), markup);
+        markup.setKeyboard(rows);
+        return markup;
     }
 
     private String buildFullName(Message message) {
@@ -345,8 +515,32 @@ public class UpdateRouter {
         return StringUtils.trimToEmpty(first + " " + (last == null ? "" : last));
     }
 
-    private boolean isCancel(String text) {
+    private boolean isAbortCommand(String text) {
+        if (text == null) {
+            return false;
+        }
         String normalized = text.trim().toLowerCase(Locale.ROOT);
-        return normalized.equals("cancel") || normalized.equals("/cancel");
+        return normalized.equals("cancel") || normalized.equals("/cancel") || normalized.equals("/stop");
+    }
+
+    private Optional<LocalTime[]> parseTimeRange(String text) {
+        if (text == null || !text.contains("-")) {
+            return Optional.empty();
+        }
+        String[] parts = text.split("-");
+        if (parts.length != 2) {
+            return Optional.empty();
+        }
+        try {
+            LocalTime start = LocalTime.parse(parts[0].trim());
+            LocalTime end = LocalTime.parse(parts[1].trim());
+            if (!end.isAfter(start)) {
+                return Optional.empty();
+            }
+            return Optional.of(new LocalTime[]{start, end});
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 }
+
