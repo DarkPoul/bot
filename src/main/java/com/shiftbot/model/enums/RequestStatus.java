@@ -1,6 +1,8 @@
 package com.shiftbot.model.enums;
 
 public enum RequestStatus {
+    INITIATED,
+    WAIT_PEER,
     DRAFT,
     WAIT_OTHER,
     WAIT_TM,

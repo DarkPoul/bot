@@ -27,10 +27,12 @@ public class Application {
         ShiftsRepository shiftsRepository = new ShiftsRepository(sheetsClient);
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
+        ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
 
-        AuthService authService = new AuthService(usersRepository, config.getZoneId());
+        AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
-        RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
+        RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
         ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
         CoverRequestFsm coverRequestFsm = new CoverRequestFsm();
@@ -42,6 +44,8 @@ public class Application {
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        reminderService.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(reminderService::stop));
         log.info("Bot started with username {}", config.getBotUsername());
     }
 }

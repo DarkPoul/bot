@@ -20,9 +20,8 @@ public class AuditService {
     private final ZoneId zoneId;
     private final Gson gson = new Gson();
 
-    public AuditService(AuditRepository auditRepository, BotNotificationPort bot, Long auditChatId, ZoneId zoneId) {
+    public AuditService(AuditRepository auditRepository, Long auditChatId, ZoneId zoneId) {
         this.auditRepository = auditRepository;
-        this.bot = bot;
         this.auditChatId = auditChatId;
         this.zoneId = zoneId;
     }
