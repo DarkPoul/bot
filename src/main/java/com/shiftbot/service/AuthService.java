@@ -8,13 +8,16 @@ import com.shiftbot.util.TimeUtils;
 
 import java.time.ZoneId;
 import java.util.Optional;
+import java.util.Map;
 
 public class AuthService {
     private final UsersRepository usersRepository;
+    private final AuditService auditService;
     private final ZoneId zoneId;
 
-    public AuthService(UsersRepository usersRepository, ZoneId zoneId) {
+    public AuthService(UsersRepository usersRepository, AuditService auditService, ZoneId zoneId) {
         this.usersRepository = usersRepository;
+        this.auditService = auditService;
         this.zoneId = zoneId;
     }
 

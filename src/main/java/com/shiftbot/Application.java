@@ -26,7 +26,8 @@ public class Application {
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
 
-        AuthService authService = new AuthService(usersRepository, config.getZoneId());
+        AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
         AuditService auditService = new AuditService(auditRepository, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
@@ -37,6 +38,8 @@ public class Application {
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        reminderService.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(reminderService::stop));
         log.info("Bot started with username {}", config.getBotUsername());
     }
 }
