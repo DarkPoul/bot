@@ -153,23 +153,34 @@ public class RequestService {
                 .collect(Collectors.toList());
     }
 
-    private Request require(String requestId) {
+    public List<Request> pendingForTm() {
+        return requestsRepository.findAll().stream()
+                .filter(r -> r.getStatus() == RequestStatus.WAIT_TM)
+                .collect(Collectors.toList());
+    }
+
+    public Optional<Request> findById(String requestId) {
+        return requestsRepository.findById(requestId);
+    }
+
+    public Request approveByTm(String requestId) {
+        Request request = load(requestId);
+        request.setStatus(RequestStatus.APPROVED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
+    public Request rejectByTm(String requestId) {
+        Request request = load(requestId);
+        request.setStatus(RequestStatus.REJECTED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
+    private Request load(String requestId) {
         return requestsRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
-    }
-
-    private void revertPendingShift(Request request) {
-        findLinkedShift(request).ifPresent(shift -> shiftsRepository.updateStatusAndLink(shift.getShiftId(), ShiftStatus.APPROVED, null));
-    }
-
-    private void finalizePendingShift(Request request) {
-        findLinkedShift(request).ifPresent(shift -> shiftsRepository.updateStatusAndLink(shift.getShiftId(), ShiftStatus.APPROVED, null));
-    }
-
-    private Optional<Shift> findLinkedShift(Request request) {
-        if (request.getFromUserId() == null) {
-            return Optional.empty();
-        }
-        return shiftsRepository.findByUserAndSlot(request.getFromUserId(), request.getDate(), request.getStartTime(), request.getEndTime(), request.getLocationId());
     }
 }

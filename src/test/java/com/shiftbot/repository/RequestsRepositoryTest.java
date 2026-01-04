@@ -9,6 +9,8 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,40 +22,28 @@ import static org.mockito.Mockito.when;
 class RequestsRepositoryTest {
 
     @Test
-    void updatesRequestRowById() {
+    void updatesExistingRow() {
         SheetsClient sheetsClient = mock(SheetsClient.class);
         RequestsRepository repository = new RequestsRepository(sheetsClient);
-
-        List<List<Object>> rows = List.of(
-                List.of(
-                        "req-1",
-                        RequestType.COVER.name(),
-                        "1",
-                        "",
-                        "",
-                        LocalDate.of(2024, 3, 10).toString(),
-                        LocalTime.of(10, 0).toString(),
-                        LocalTime.of(12, 0).toString(),
-                        "loc",
-                        RequestStatus.WAIT_TM.name(),
-                        "comment",
-                        Instant.parse("2024-03-01T00:00:00Z").toString(),
-                        Instant.parse("2024-03-01T00:00:00Z").toString()
-                )
-        );
+        List<List<Object>> rows = new ArrayList<>();
+        rows.add(new ArrayList<>(Arrays.asList(
+                "req1", "COVER", "1", "", "", "2024-04-01", "10:00", "18:00", "loc1", "WAIT_TM", "old", Instant.EPOCH.toString(), Instant.EPOCH.toString()
+        )));
+        rows.add(new ArrayList<>(Arrays.asList(
+                "req2", "COVER", "2", "", "", "2024-04-02", "08:00", "16:00", "loc2", "WAIT_TM", "comment", Instant.EPOCH.toString(), Instant.EPOCH.toString()
+        )));
         when(sheetsClient.readRange("requests!A2:N")).thenReturn(rows);
 
-        Request request = repository.findAll().get(0);
-        request.setStatus(RequestStatus.APPROVED);
-        Instant updatedAt = Instant.parse("2024-03-02T00:00:00Z");
-        request.setUpdatedAt(updatedAt);
+        Request updated = new Request("req1", RequestType.COVER, 1L, null, null, LocalDate.of(2024, 4, 1),
+                LocalTime.of(10, 0), LocalTime.of(18, 0), "loc1", RequestStatus.APPROVED_TM, "new comment", Instant.EPOCH, Instant.now());
 
-        repository.update(request);
+        repository.update(updated);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<Object>> rowCaptor = ArgumentCaptor.forClass((Class<List<Object>>) (Class<?>) List.class);
-        verify(sheetsClient).updateRow(eq("requests!A2:N"), eq(0), rowCaptor.capture());
-        assertEquals(RequestStatus.APPROVED.name(), rowCaptor.getValue().get(9));
-        assertEquals(updatedAt.toString(), rowCaptor.getValue().get(12));
+        ArgumentCaptor<List<List<Object>>> captor = ArgumentCaptor.forClass(List.class);
+        verify(sheetsClient).updateRange(eq("requests!A2:N"), captor.capture());
+        List<List<Object>> updatedRows = captor.getValue();
+        assertEquals("APPROVED_TM", updatedRows.get(0).get(9));
+        assertEquals("new comment", updatedRows.get(0).get(10));
+        assertEquals("req2", updatedRows.get(1).get(0));
     }
 }

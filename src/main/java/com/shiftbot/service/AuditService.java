@@ -15,6 +15,7 @@ import java.util.Map;
 public class AuditService {
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private final AuditRepository auditRepository;
+    private BotNotificationPort bot;
     private final Long auditChatId;
     private final ZoneId zoneId;
     private final Gson gson = new Gson();
@@ -25,7 +26,11 @@ public class AuditService {
         this.zoneId = zoneId;
     }
 
-    public void logEvent(long actorId, String action, String entityType, String entityId, Map<String, Object> details, BotNotificationPort bot) {
+    public void setBot(BotNotificationPort bot) {
+        this.bot = bot;
+    }
+
+    public void logEvent(long actorId, String action, String entityType, String entityId, Map<String, Object> details) {
         AuditEvent event = new AuditEvent();
         event.setActorUserId(actorId);
         event.setAction(action);

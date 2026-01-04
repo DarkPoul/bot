@@ -14,6 +14,14 @@ public class ConversationState {
         this.updatedAt = Instant.now();
     }
 
+    public ConversationState(String name, Map<String, String> existingData) {
+        this.name = name;
+        if (existingData != null) {
+            this.data.putAll(existingData);
+        }
+        this.updatedAt = Instant.now();
+    }
+
     public String getName() {
         return name;
     }
