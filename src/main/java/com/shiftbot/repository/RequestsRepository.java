@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.HashMap;
 import java.util.Map;
@@ -39,31 +40,43 @@ public class RequestsRepository {
         return result;
     }
 
-    public synchronized void save(Request request) {
+    public Optional<Request> findById(String requestId) {
+        return findAll().stream()
+                .filter(r -> r.getRequestId().equals(requestId))
+                .findFirst();
+    }
+
+    public void save(Request request) {
         if (request.getRequestId() == null) {
             request.setRequestId(UUID.randomUUID().toString());
         }
-        sheetsClient.appendRow(RANGE, toRow(request));
-        invalidateCache();
+        List<Object> row = buildRow(request);
+        sheetsClient.appendRow(RANGE, row);
     }
 
-    public synchronized void update(Request request) {
-        if (rowIndexCache == null || !rowIndexCache.containsKey(request.getRequestId())) {
-            findAll();
+    public void update(Request request) {
+        List<List<Object>> rows = sheetsClient.readRange(RANGE);
+        List<List<Object>> updatedRows = new ArrayList<>();
+        boolean replaced = false;
+        if (rows != null) {
+            for (List<Object> row : rows) {
+                Request existing = mapRow(row);
+                if (existing != null && existing.getRequestId().equals(request.getRequestId())) {
+                    updatedRows.add(buildRow(request));
+                    replaced = true;
+                } else {
+                    updatedRows.add(row);
+                }
+            }
         }
-        Integer rowIndex = rowIndexCache.get(request.getRequestId());
-        if (rowIndex == null) {
+        if (replaced) {
+            sheetsClient.updateRange(RANGE, updatedRows);
+        } else {
             throw new IllegalArgumentException("Request not found: " + request.getRequestId());
         }
-        sheetsClient.updateRow(RANGE, rowIndex, toRow(request));
-        invalidateCache();
     }
 
-    public synchronized void invalidateCache() {
-        rowIndexCache = null;
-    }
-
-    private List<Object> toRow(Request request) {
+    private List<Object> buildRow(Request request) {
         List<Object> row = new ArrayList<>();
         row.add(request.getRequestId());
         row.add(request.getType().name());

@@ -11,6 +11,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public class ShiftsRepository {
@@ -67,6 +68,39 @@ public class ShiftsRepository {
         sheetsClient.appendRow(RANGE, row);
     }
 
+    public void updateStatusAndLink(String shiftId, ShiftStatus status, String linkedRequestId) {
+        List<List<Object>> rows = sheetsClient.readRange(RANGE);
+        List<List<Object>> updatedRows = new ArrayList<>();
+        boolean replaced = false;
+        if (rows != null) {
+            for (List<Object> row : rows) {
+                Shift shift = mapRow(row);
+                if (shift != null && shift.getShiftId().equals(shiftId)) {
+                    ensureSize(row, 10);
+                    row.set(6, status.name());
+                    row.set(8, linkedRequestId);
+                    row.set(9, Instant.now().toString());
+                    replaced = true;
+                }
+                updatedRows.add(row);
+            }
+        }
+        if (replaced) {
+            sheetsClient.updateRange(RANGE, updatedRows);
+        } else {
+            throw new IllegalArgumentException("Shift not found: " + shiftId);
+        }
+    }
+
+    public Optional<Shift> findByUserAndSlot(long userId, LocalDate date, LocalTime startTime, LocalTime endTime, String locationId) {
+        return findByUser(userId).stream()
+                .filter(s -> s.getDate().equals(date)
+                        && s.getStartTime().equals(startTime)
+                        && s.getEndTime().equals(endTime)
+                        && s.getLocationId().equals(locationId))
+                .findFirst();
+    }
+
     private Shift mapRow(List<Object> row) {
         if (row.isEmpty() || row.get(0) == null || row.get(0).toString().isBlank()) {
             return null;
@@ -89,5 +123,11 @@ public class ShiftsRepository {
             return row.get(idx).toString();
         }
         return "";
+    }
+
+    private void ensureSize(List<Object> row, int size) {
+        while (row.size() < size) {
+            row.add("");
+        }
     }
 }

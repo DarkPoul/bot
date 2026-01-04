@@ -4,9 +4,9 @@ import com.shiftbot.model.Request;
 import com.shiftbot.model.Shift;
 import com.shiftbot.model.enums.RequestStatus;
 import com.shiftbot.model.enums.RequestType;
+import com.shiftbot.model.enums.ShiftStatus;
 import com.shiftbot.repository.RequestsRepository;
 import com.shiftbot.repository.ShiftsRepository;
-import com.shiftbot.util.OverlapChecker;
 import com.shiftbot.util.TimeUtils;
 
 import java.time.LocalDate;
@@ -15,8 +15,7 @@ import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class RequestService {
@@ -87,43 +86,90 @@ public class RequestService {
         return request;
     }
 
+    public Request createSwapRequest(Shift fromShift, long initiatorId, long peerUserId, String comment, Shift targetShift) {
+        Request request = new Request();
+        request.setType(RequestType.SWAP);
+        request.setInitiatorUserId(initiatorId);
+        request.setFromUserId(fromShift.getUserId());
+        request.setToUserId(peerUserId);
+        request.setDate(fromShift.getDate());
+        request.setStartTime(fromShift.getStartTime());
+        request.setEndTime(fromShift.getEndTime());
+        request.setLocationId(fromShift.getLocationId());
+        request.setStatus(RequestStatus.INITIATED);
+        request.setComment(comment);
+        request.setCreatedAt(TimeUtils.nowInstant(zoneId));
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.save(request);
+        request.setStatus(RequestStatus.WAIT_PEER);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        shiftsRepository.updateStatusAndLink(fromShift.getShiftId(), ShiftStatus.PENDING_SWAP, request.getRequestId());
+        return request;
+    }
+
+    public Optional<Request> findById(String requestId) {
+        return requestsRepository.findById(requestId);
+    }
+
+    public Request acceptByPeer(String requestId) {
+        Request request = require(requestId);
+        request.setStatus(RequestStatus.WAIT_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
+    public Request declineByPeer(String requestId) {
+        Request request = require(requestId);
+        request.setStatus(RequestStatus.REJECTED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        revertPendingShift(request);
+        return request;
+    }
+
+    public Request approveByTm(String requestId) {
+        Request request = require(requestId);
+        request.setStatus(RequestStatus.APPROVED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        finalizePendingShift(request);
+        return request;
+    }
+
+    public Request rejectByTm(String requestId) {
+        Request request = require(requestId);
+        request.setStatus(RequestStatus.REJECTED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        revertPendingShift(request);
+        return request;
+    }
+
     public List<Request> requestsByUser(long userId) {
         return requestsRepository.findAll().stream()
                 .filter(r -> r.getInitiatorUserId() == userId || (r.getFromUserId() != null && r.getFromUserId() == userId) || (r.getToUserId() != null && r.getToUserId() == userId))
                 .collect(Collectors.toList());
     }
 
-    private void checkForConflicts(long userId, String locationId, LocalDate date, LocalTime start, LocalTime end) {
-        List<Shift> userShifts = shiftsRepository.findByUser(userId);
-        List<Shift> locationShifts = shiftsRepository.findByLocation(locationId);
-        List<Request> allRequests = requestsRepository.findAll();
-
-        OverlapChecker.ConflictResult conflicts = OverlapChecker.conflictsFor(userId, locationId, date, start, end, userShifts, locationShifts, allRequests);
-        if (conflicts.hasAnyConflicts()) {
-            throw new IllegalArgumentException(buildConflictMessage(conflicts, date));
-        }
+    private Request require(String requestId) {
+        return requestsRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
     }
 
-    private String buildConflictMessage(OverlapChecker.ConflictResult conflicts, LocalDate date) {
-        StringBuilder sb = new StringBuilder("❗️ Є конфлікт для ")
-                .append(TimeUtils.humanDate(date, zoneId))
-                .append(":\n");
-        if (conflicts.hasUserConflicts()) {
-            sb.append("• Ваші зміни/заявки: ");
-            sb.append(formatSlots(conflicts.userConflicts()));
-            sb.append("\n");
-        }
-        if (conflicts.hasLocationConflicts()) {
-            sb.append("• На локації вже є зміни/заявки: ");
-            sb.append(formatSlots(conflicts.locationConflicts()));
-        }
-        return sb.toString().trim();
+    private void revertPendingShift(Request request) {
+        findLinkedShift(request).ifPresent(shift -> shiftsRepository.updateStatusAndLink(shift.getShiftId(), ShiftStatus.APPROVED, null));
     }
 
-    private String formatSlots(List<OverlapChecker.ConflictSlot> slots) {
-        return slots.stream()
-                .map(slot -> TimeUtils.humanTimeRange(slot.startTime(), slot.endTime()))
-                .distinct()
-                .collect(Collectors.joining(", "));
+    private void finalizePendingShift(Request request) {
+        findLinkedShift(request).ifPresent(shift -> shiftsRepository.updateStatusAndLink(shift.getShiftId(), ShiftStatus.APPROVED, null));
+    }
+
+    private Optional<Shift> findLinkedShift(Request request) {
+        if (request.getFromUserId() == null) {
+            return Optional.empty();
+        }
+        return shiftsRepository.findByUserAndSlot(request.getFromUserId(), request.getDate(), request.getStartTime(), request.getEndTime(), request.getLocationId());
     }
 }
