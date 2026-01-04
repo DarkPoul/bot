@@ -39,8 +39,27 @@ public class ScheduleService {
         return map;
     }
 
+    public Map<LocalDate, ShiftStatus> calendarStatusesForLocation(String locationId, LocalDate month) {
+        Map<LocalDate, ShiftStatus> map = new HashMap<>();
+        List<Shift> shifts = shiftsRepository.findByLocation(locationId);
+        for (Shift shift : shifts) {
+            if (shift.getDate().getMonth() == month.getMonth() && shift.getDate().getYear() == month.getYear()) {
+                ShiftStatus existing = map.get(shift.getDate());
+                map.put(shift.getDate(), mergeStatus(existing, shift.getStatus()));
+            }
+        }
+        return map;
+    }
+
     public List<Shift> shiftsForDate(long userId, LocalDate date) {
         return shiftsRepository.findByUser(userId).stream()
+                .filter(s -> s.getDate().equals(date))
+                .sorted(Comparator.comparing(Shift::getStartTime))
+                .collect(Collectors.toList());
+    }
+
+    public List<Shift> shiftsForLocation(String locationId, LocalDate date) {
+        return shiftsRepository.findByLocation(locationId).stream()
                 .filter(s -> s.getDate().equals(date))
                 .sorted(Comparator.comparing(Shift::getStartTime))
                 .collect(Collectors.toList());
@@ -100,5 +119,21 @@ public class ScheduleService {
             case DRAFT -> "Чернетка";
             case CANCELED -> "Скасовано";
         };
+    }
+
+    private ShiftStatus mergeStatus(ShiftStatus existing, ShiftStatus candidate) {
+        if (existing == null) {
+            return candidate;
+        }
+        if (existing == ShiftStatus.APPROVED || candidate == ShiftStatus.APPROVED) {
+            return ShiftStatus.APPROVED;
+        }
+        if (existing == ShiftStatus.PENDING_TM || candidate == ShiftStatus.PENDING_TM) {
+            return ShiftStatus.PENDING_TM;
+        }
+        if (existing == ShiftStatus.DRAFT || candidate == ShiftStatus.DRAFT) {
+            return ShiftStatus.DRAFT;
+        }
+        return candidate;
     }
 }

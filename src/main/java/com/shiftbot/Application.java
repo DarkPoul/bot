@@ -26,17 +26,19 @@ public class Application {
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
 
-        AuthService authService = new AuthService(usersRepository, config.getZoneId());
+        AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
-        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId());
+        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, usersRepository, auditService, calendarKeyboardBuilder, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
-        AuditService auditService = new AuditService(auditRepository, bot, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        reminderService.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(reminderService::stop));
         log.info("Bot started with username {}", config.getBotUsername());
     }
 }
