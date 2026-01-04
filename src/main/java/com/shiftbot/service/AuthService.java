@@ -35,7 +35,7 @@ public class AuthService {
             if (user.getStatus() == UserStatus.PENDING) {
                 return OnboardResult.pending(user, "Ваша анкета очікує підтвердження від ТМ/Сеньйора.");
             }
-            return OnboardResult.allowed(user, "👋 Вітаємо, " + user.getFullName() + "!");
+            return OnboardResult.allowed(user, null);
         }
         User user = new User();
         user.setUserId(userId);
@@ -57,7 +57,7 @@ public class AuthService {
         }
 
         private static OnboardResult pending(User user, String message) {
-            return new OnboardResult(user, true, message);
+            return new OnboardResult(user, false, message);
         }
 
         private static OnboardResult blocked(User user, String message) {

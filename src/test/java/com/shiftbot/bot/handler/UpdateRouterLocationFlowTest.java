@@ -68,7 +68,7 @@ class UpdateRouterLocationFlowTest {
         User onboarded = new User();
         onboarded.setUserId(100L);
         onboarded.setFullName("Tester");
-        when(authService.onboard(anyLong(), any(), any())).thenReturn(onboarded);
+        when(authService.onboard(anyLong(), any(), any())).thenReturn(new AuthService.OnboardResult(onboarded, true, null));
         when(locationsRepository.findById("loc-1")).thenReturn(Optional.of(new Location("loc-1", "Mall", "", true)));
 
         com.shiftbot.model.User seller = new com.shiftbot.model.User();
