@@ -68,6 +68,7 @@ public class CalendarKeyboardBuilder {
         return switch (status) {
             case APPROVED -> "🟥 ";
             case DRAFT, PENDING_TM -> "🟩 ";
+            case PENDING_SWAP -> "🟦 ";
             case CANCELED -> "⬜ ";
         };
     }

@@ -26,19 +26,23 @@ public class Application {
         ShiftsRepository shiftsRepository = new ShiftsRepository(sheetsClient);
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
+        ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
 
-        AuthService authService = new AuthService(usersRepository, config.getZoneId());
+        AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
-        RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
+        RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
         ConversationStateStore conversationStateStore = new ConversationStateStore(Duration.ofMinutes(10));
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId(), conversationStateStore);
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
-        AuditService auditService = new AuditService(auditRepository, bot, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        auditService.setBot(bot);
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        reminderService.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(reminderService::stop));
         log.info("Bot started with username {}", config.getBotUsername());
     }
 }

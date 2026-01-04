@@ -9,7 +9,9 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class UsersRepository {
@@ -20,6 +22,7 @@ public class UsersRepository {
     private final Duration cacheTtl;
     private List<User> cache;
     private Instant cacheUpdatedAt;
+    private Map<Long, Integer> rowIndexCache;
 
     public UsersRepository(SheetsClient sheetsClient, Duration cacheTtl) {
         this.sheetsClient = sheetsClient;
@@ -31,11 +34,15 @@ public class UsersRepository {
             return cache;
         }
         List<List<Object>> rows = sheetsClient.readRange(RANGE);
+        Map<Long, Integer> rowIndexMap = new HashMap<>();
         List<User> users = new ArrayList<>();
         if (rows != null) {
-            for (List<Object> row : rows) {
+            for (int i = 0; i < rows.size(); i++) {
+                List<Object> row = rows.get(i);
                 try {
-                    users.add(mapRow(row));
+                    User user = mapRow(row);
+                    users.add(user);
+                    rowIndexMap.put(user.getUserId(), i);
                 } catch (Exception e) {
                     log.warn("Skip invalid user row: {}", row, e);
                 }
@@ -43,6 +50,7 @@ public class UsersRepository {
         }
         cache = users;
         cacheUpdatedAt = Instant.now();
+        rowIndexCache = rowIndexMap;
         return users;
     }
 
@@ -51,6 +59,38 @@ public class UsersRepository {
     }
 
     public synchronized void save(User user) {
+        sheetsClient.appendRow(RANGE, buildRow(user));
+        invalidateCache();
+    }
+
+    public synchronized void updateRow(long userId, User user) {
+        List<List<Object>> rows = sheetsClient.readRange(RANGE);
+        if (rows == null) {
+            throw new IllegalArgumentException("User not found for id: " + userId);
+        }
+        for (int i = 0; i < rows.size(); i++) {
+            List<Object> row = rows.get(i);
+            try {
+                long rowUserId = Long.parseLong(get(row, 0));
+                if (rowUserId == userId) {
+                    int sheetRowNumber = i + 2; // RANGE starts at A2
+                    sheetsClient.updateRange("users!A" + sheetRowNumber + ":H" + sheetRowNumber, List.of(buildRow(user)));
+                    invalidateCache();
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Skip invalid user row during update: {}", row, e);
+            }
+        }
+        throw new IllegalArgumentException("User not found for id: " + userId);
+    }
+
+    public synchronized void invalidateCache() {
+        cache = null;
+        cacheUpdatedAt = null;
+    }
+
+    private List<Object> buildRow(User user) {
         List<Object> row = new ArrayList<>();
         row.add(String.valueOf(user.getUserId()));
         row.add(user.getUsername());
@@ -60,13 +100,7 @@ public class UsersRepository {
         row.add(user.getStatus().name());
         row.add(user.getCreatedAt() != null ? user.getCreatedAt().toString() : "");
         row.add(user.getCreatedBy() != null ? user.getCreatedBy().toString() : "");
-        sheetsClient.appendRow(RANGE, row);
-        invalidateCache();
-    }
-
-    public synchronized void invalidateCache() {
-        cache = null;
-        cacheUpdatedAt = null;
+        return row;
     }
 
     private User mapRow(List<Object> row) {
