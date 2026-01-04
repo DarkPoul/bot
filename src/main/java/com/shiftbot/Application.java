@@ -38,6 +38,8 @@ public class Application {
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        reminderService.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(reminderService::stop));
         log.info("Bot started with username {}", config.getBotUsername());
     }
 }
