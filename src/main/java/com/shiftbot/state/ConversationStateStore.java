@@ -15,6 +15,7 @@ public class ConversationStateStore {
     }
 
     public void put(Long userId, ConversationState state) {
+        state.touch();
         states.put(userId, state);
     }
 
@@ -23,14 +24,30 @@ public class ConversationStateStore {
         if (state == null) {
             return Optional.empty();
         }
-        if (state.getUpdatedAt().isBefore(Instant.now().minus(ttl))) {
+        if (isExpired(state)) {
             states.remove(userId);
-            return Optional.empty();
+            return Optional.of(new ConversationState(ConversationState.STATE_TIMEOUT, state.getData()));
         }
+        state.touch();
         return Optional.of(state);
+    }
+
+    public boolean has(Long userId) {
+        return states.containsKey(userId);
+    }
+
+    public void touch(Long userId) {
+        states.computeIfPresent(userId, (id, state) -> {
+            state.touch();
+            return state;
+        });
     }
 
     public void clear(Long userId) {
         states.remove(userId);
+    }
+
+    private boolean isExpired(ConversationState state) {
+        return state.getUpdatedAt().isBefore(Instant.now().minus(ttl));
     }
 }

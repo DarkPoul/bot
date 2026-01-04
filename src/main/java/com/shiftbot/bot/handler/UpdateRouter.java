@@ -6,6 +6,7 @@ import com.shiftbot.model.Shift;
 import com.shiftbot.model.User;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.ShiftStatus;
+import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.service.AuthService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
@@ -28,14 +29,18 @@ public class UpdateRouter {
     private final RequestService requestService;
     private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final ZoneId zoneId;
+    private final ConversationStateStore conversationStateStore;
+    private final CoverRequestConversationHandler coverRequestConversationHandler;
 
     public UpdateRouter(AuthService authService, ScheduleService scheduleService, RequestService requestService,
-                        CalendarKeyboardBuilder calendarKeyboardBuilder, ZoneId zoneId) {
+                        CalendarKeyboardBuilder calendarKeyboardBuilder, ZoneId zoneId, ConversationStateStore conversationStateStore) {
         this.authService = authService;
         this.scheduleService = scheduleService;
         this.requestService = requestService;
         this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.zoneId = zoneId;
+        this.conversationStateStore = conversationStateStore;
+        this.coverRequestConversationHandler = new CoverRequestConversationHandler(conversationStateStore, requestService, zoneId);
     }
 
     public void handle(Update update, BotNotificationPort bot) {
@@ -53,6 +58,16 @@ public class UpdateRouter {
 
         if (text.startsWith("/start")) {
             bot.sendMarkdown(chatId, "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!", mainMenu(user));
+            return;
+        }
+
+        if (isCancel(text)) {
+            coverRequestConversationHandler.handleUserInput(user, text, bot);
+            return;
+        }
+
+        if (coverRequestConversationHandler.hasConversation(user.getUserId())) {
+            coverRequestConversationHandler.handleUserInput(user, text, bot);
             return;
         }
 
@@ -85,7 +100,7 @@ public class UpdateRouter {
                 bot.sendMarkdown(chatId, MarkdownEscaper.escape(sb.toString()), null);
             }
         } else if ("noop".equals(data)) {
-            // ignore
+            coverRequestConversationHandler.handleNoop(chatId, bot);
         } else if (data.startsWith("cover:")) {
             LocalDate date = LocalDate.parse(data.substring("cover:".length()));
             requestService.createCoverRequest(user.getUserId(), "unknown", date, TimeUtils.DEFAULT_START, TimeUtils.DEFAULT_END, "Авто створено з меню");
@@ -109,16 +124,7 @@ public class UpdateRouter {
     }
 
     private void sendCoverRequestIntro(User user, BotNotificationPort bot) {
-        LocalDate tomorrow = TimeUtils.today(zoneId).plusDays(1);
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(Collections.singletonList(InlineKeyboardButton.builder()
-                .text("🚑 Попросити заміну на завтра")
-                .callbackData("cover:" + tomorrow)
-                .build()));
-        markup.setKeyboard(rows);
-        String text = "🆘 Потрібна заміна? Оберіть дату";
-        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), markup);
+        coverRequestConversationHandler.start(user, bot);
     }
 
     private InlineKeyboardMarkup mainMenu(User user) {
@@ -154,5 +160,10 @@ public class UpdateRouter {
 
     private String buildFullName(String first, String last) {
         return StringUtils.trimToEmpty(first + " " + (last == null ? "" : last));
+    }
+
+    private boolean isCancel(String text) {
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("cancel") || normalized.equals("/cancel");
     }
 }
