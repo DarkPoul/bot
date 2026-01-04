@@ -29,11 +29,11 @@ public class Application {
         AuthService authService = new AuthService(usersRepository, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
+        AuditService auditService = new AuditService(auditRepository, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
-        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId());
+        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, usersRepository, auditService, calendarKeyboardBuilder, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
-        AuditService auditService = new AuditService(auditRepository, bot, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);

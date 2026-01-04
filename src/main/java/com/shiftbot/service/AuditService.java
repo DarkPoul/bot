@@ -15,19 +15,17 @@ import java.util.Map;
 public class AuditService {
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private final AuditRepository auditRepository;
-    private final BotNotificationPort bot;
     private final Long auditChatId;
     private final ZoneId zoneId;
     private final Gson gson = new Gson();
 
-    public AuditService(AuditRepository auditRepository, BotNotificationPort bot, Long auditChatId, ZoneId zoneId) {
+    public AuditService(AuditRepository auditRepository, Long auditChatId, ZoneId zoneId) {
         this.auditRepository = auditRepository;
-        this.bot = bot;
         this.auditChatId = auditChatId;
         this.zoneId = zoneId;
     }
 
-    public void logEvent(long actorId, String action, String entityType, String entityId, Map<String, Object> details) {
+    public void logEvent(long actorId, String action, String entityType, String entityId, Map<String, Object> details, BotNotificationPort bot) {
         AuditEvent event = new AuditEvent();
         event.setActorUserId(actorId);
         event.setAction(action);
@@ -36,7 +34,7 @@ public class AuditService {
         event.setTimestamp(TimeUtils.nowInstant(zoneId));
         event.setDetails(gson.toJson(details));
         auditRepository.save(event);
-        if (auditChatId != null) {
+        if (auditChatId != null && bot != null) {
             try {
                 String text = "🛈 " + MarkdownEscaper.escape(action) + " (" + entityType + ")";
                 bot.sendMarkdown(auditChatId, text, null);

@@ -18,10 +18,17 @@ public class AuthService {
         this.zoneId = zoneId;
     }
 
-    public User onboard(long userId, String username, String fullName) {
+    public OnboardResult onboard(long userId, String username, String fullName) {
         Optional<User> existing = usersRepository.findById(userId);
         if (existing.isPresent()) {
-            return existing.get();
+            User user = existing.get();
+            if (user.getStatus() == UserStatus.PENDING) {
+                return OnboardResult.pending(user, "Ваша анкета очікує підтвердження від ТМ/Сеньйора.");
+            }
+            if (user.getStatus() == UserStatus.BLOCKED) {
+                return OnboardResult.blocked(user, "Ваш доступ заблоковано. Зверніться до ТМ/Сеньйора.");
+            }
+            return OnboardResult.allowed(user);
         }
         User user = new User();
         user.setUserId(userId);
@@ -31,6 +38,20 @@ public class AuthService {
         user.setStatus(UserStatus.PENDING);
         user.setCreatedAt(TimeUtils.nowInstant(zoneId));
         usersRepository.save(user);
-        return user;
+        return OnboardResult.pending(user, "Ваша анкета створена та очікує підтвердження від ТМ/Сеньйора.");
+    }
+
+    public record OnboardResult(User user, boolean allowed, String message) {
+        private static OnboardResult allowed(User user) {
+            return new OnboardResult(user, true, null);
+        }
+
+        private static OnboardResult pending(User user, String message) {
+            return new OnboardResult(user, false, message);
+        }
+
+        private static OnboardResult blocked(User user, String message) {
+            return new OnboardResult(user, false, message);
+        }
     }
 }
