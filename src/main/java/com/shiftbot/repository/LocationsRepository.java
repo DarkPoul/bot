@@ -42,6 +42,12 @@ public class LocationsRepository {
         return locations;
     }
 
+    public List<Location> findActive() {
+        return findAll().stream()
+                .filter(Location::isActive)
+                .toList();
+    }
+
     public Optional<Location> findById(String id) {
         return findAll().stream().filter(l -> l.getLocationId().equals(id)).findFirst();
     }

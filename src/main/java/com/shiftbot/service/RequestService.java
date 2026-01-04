@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class RequestService {
@@ -41,5 +42,36 @@ public class RequestService {
         return requestsRepository.findAll().stream()
                 .filter(r -> r.getInitiatorUserId() == userId || (r.getFromUserId() != null && r.getFromUserId() == userId) || (r.getToUserId() != null && r.getToUserId() == userId))
                 .collect(Collectors.toList());
+    }
+
+    public List<Request> pendingForTm() {
+        return requestsRepository.findAll().stream()
+                .filter(r -> r.getStatus() == RequestStatus.WAIT_TM)
+                .collect(Collectors.toList());
+    }
+
+    public Optional<Request> findById(String requestId) {
+        return requestsRepository.findById(requestId);
+    }
+
+    public Request approveByTm(String requestId) {
+        Request request = load(requestId);
+        request.setStatus(RequestStatus.APPROVED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
+    public Request rejectByTm(String requestId) {
+        Request request = load(requestId);
+        request.setStatus(RequestStatus.REJECTED_TM);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
+    private Request load(String requestId) {
+        return requestsRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
     }
 }

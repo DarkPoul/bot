@@ -6,6 +6,8 @@ import com.shiftbot.bot.ui.CalendarKeyboardBuilder;
 import com.shiftbot.config.EnvironmentConfig;
 import com.shiftbot.repository.*;
 import com.shiftbot.service.*;
+import com.shiftbot.state.ConversationStateStore;
+import com.shiftbot.state.CoverRequestFsm;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import org.slf4j.Logger;
@@ -30,10 +32,13 @@ public class Application {
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
+        ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
+        CoverRequestFsm coverRequestFsm = new CoverRequestFsm();
+        AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
 
-        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId());
+        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, locationsRepository, stateStore, coverRequestFsm, auditService, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
-        AuditService auditService = new AuditService(auditRepository, bot, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        auditService.setBot(bot);
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
