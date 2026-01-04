@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public class RequestsRepository {
@@ -33,10 +34,43 @@ public class RequestsRepository {
         return result;
     }
 
+    public Optional<Request> findById(String requestId) {
+        return findAll().stream()
+                .filter(r -> r.getRequestId().equals(requestId))
+                .findFirst();
+    }
+
     public void save(Request request) {
         if (request.getRequestId() == null) {
             request.setRequestId(UUID.randomUUID().toString());
         }
+        List<Object> row = buildRow(request);
+        sheetsClient.appendRow(RANGE, row);
+    }
+
+    public void update(Request request) {
+        List<List<Object>> rows = sheetsClient.readRange(RANGE);
+        List<List<Object>> updatedRows = new ArrayList<>();
+        boolean replaced = false;
+        if (rows != null) {
+            for (List<Object> row : rows) {
+                Request existing = mapRow(row);
+                if (existing != null && existing.getRequestId().equals(request.getRequestId())) {
+                    updatedRows.add(buildRow(request));
+                    replaced = true;
+                } else {
+                    updatedRows.add(row);
+                }
+            }
+        }
+        if (replaced) {
+            sheetsClient.updateRange(RANGE, updatedRows);
+        } else {
+            throw new IllegalArgumentException("Request not found: " + request.getRequestId());
+        }
+    }
+
+    private List<Object> buildRow(Request request) {
         List<Object> row = new ArrayList<>();
         row.add(request.getRequestId());
         row.add(request.getType().name());
@@ -51,7 +85,7 @@ public class RequestsRepository {
         row.add(request.getComment());
         row.add(request.getCreatedAt() != null ? request.getCreatedAt().toString() : Instant.now().toString());
         row.add(request.getUpdatedAt() != null ? request.getUpdatedAt().toString() : Instant.now().toString());
-        sheetsClient.appendRow(RANGE, row);
+        return row;
     }
 
     private Request mapRow(List<Object> row) {

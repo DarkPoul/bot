@@ -97,6 +97,7 @@ public class ScheduleService {
         return switch (status) {
             case APPROVED -> "Затверджено";
             case PENDING_TM -> "Очікує ТМ";
+            case PENDING_SWAP -> "Очікує підміну";
             case DRAFT -> "Чернетка";
             case CANCELED -> "Скасовано";
         };
