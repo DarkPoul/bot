@@ -33,10 +33,13 @@ public class Application {
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
+        ReminderService reminderService = new ReminderService(scheduleService, usersRepository, requestsRepository, bot, config.getZoneId());
         AuditService auditService = new AuditService(auditRepository, bot, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
+        reminderService.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(reminderService::stop));
         log.info("Bot started with username {}", config.getBotUsername());
     }
 }
