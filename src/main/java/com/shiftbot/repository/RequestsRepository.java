@@ -10,33 +10,60 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 public class RequestsRepository {
     private static final String RANGE = "requests!A2:N";
     private final SheetsClient sheetsClient;
+    private Map<String, Integer> rowIndexCache;
 
     public RequestsRepository(SheetsClient sheetsClient) {
         this.sheetsClient = sheetsClient;
     }
 
-    public List<Request> findAll() {
+    public synchronized List<Request> findAll() {
         List<Request> result = new ArrayList<>();
+        rowIndexCache = new HashMap<>();
         List<List<Object>> rows = sheetsClient.readRange(RANGE);
         if (rows != null) {
-            for (List<Object> row : rows) {
+            for (int i = 0; i < rows.size(); i++) {
+                List<Object> row = rows.get(i);
                 Request request = mapRow(row);
                 if (request != null) {
                     result.add(request);
+                    rowIndexCache.put(request.getRequestId(), i);
                 }
             }
         }
         return result;
     }
 
-    public void save(Request request) {
+    public synchronized void save(Request request) {
         if (request.getRequestId() == null) {
             request.setRequestId(UUID.randomUUID().toString());
         }
+        sheetsClient.appendRow(RANGE, toRow(request));
+        invalidateCache();
+    }
+
+    public synchronized void update(Request request) {
+        if (rowIndexCache == null || !rowIndexCache.containsKey(request.getRequestId())) {
+            findAll();
+        }
+        Integer rowIndex = rowIndexCache.get(request.getRequestId());
+        if (rowIndex == null) {
+            throw new IllegalArgumentException("Request not found: " + request.getRequestId());
+        }
+        sheetsClient.updateRow(RANGE, rowIndex, toRow(request));
+        invalidateCache();
+    }
+
+    public synchronized void invalidateCache() {
+        rowIndexCache = null;
+    }
+
+    private List<Object> toRow(Request request) {
         List<Object> row = new ArrayList<>();
         row.add(request.getRequestId());
         row.add(request.getType().name());
@@ -51,7 +78,7 @@ public class RequestsRepository {
         row.add(request.getComment());
         row.add(request.getCreatedAt() != null ? request.getCreatedAt().toString() : Instant.now().toString());
         row.add(request.getUpdatedAt() != null ? request.getUpdatedAt().toString() : Instant.now().toString());
-        sheetsClient.appendRow(RANGE, row);
+        return row;
     }
 
     private Request mapRow(List<Object> row) {

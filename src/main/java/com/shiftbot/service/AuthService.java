@@ -21,7 +21,20 @@ public class AuthService {
     public User onboard(long userId, String username, String fullName) {
         Optional<User> existing = usersRepository.findById(userId);
         if (existing.isPresent()) {
-            return existing.get();
+            User user = existing.get();
+            boolean changed = false;
+            if (!username.equals(user.getUsername())) {
+                user.setUsername(username);
+                changed = true;
+            }
+            if (!fullName.equals(user.getFullName())) {
+                user.setFullName(fullName);
+                changed = true;
+            }
+            if (changed) {
+                usersRepository.update(user);
+            }
+            return user;
         }
         User user = new User();
         user.setUserId(userId);

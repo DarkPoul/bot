@@ -8,6 +8,7 @@ import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.SheetsScopes;
 import com.google.api.services.sheets.v4.model.AppendValuesResponse;
+import com.google.api.services.sheets.v4.model.BatchUpdateValuesRequest;
 import com.google.api.services.sheets.v4.model.ValueRange;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
@@ -17,11 +18,15 @@ import org.slf4j.LoggerFactory;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SheetsClient {
     private static final Logger log = LoggerFactory.getLogger(SheetsClient.class);
+    private static final Pattern RANGE_PATTERN = Pattern.compile("(?:(?<sheet>[^!]+)!)?(?<startCol>[A-Z]+)(?<startRow>\\d+):(?<endCol>[A-Z]+)(?<endRow>\\d*)");
     private final Sheets sheets;
     private final String spreadsheetId;
 
@@ -74,5 +79,45 @@ public class SheetsClient {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to update range: " + range, e);
         }
+    }
+
+    public void updateRow(String range, int rowIndex, List<Object> row) {
+        batchUpdateRows(range, Collections.singletonList(rowIndex), Collections.singletonList(row));
+    }
+
+    public void batchUpdateRows(String range, List<Integer> rowIndexes, List<List<Object>> rows) {
+        if (rowIndexes.size() != rows.size()) {
+            throw new IllegalArgumentException("Row indexes and rows size mismatch");
+        }
+        try {
+            List<ValueRange> data = new ArrayList<>();
+            for (int i = 0; i < rows.size(); i++) {
+                data.add(new ValueRange()
+                        .setRange(buildRowRange(range, rowIndexes.get(i)))
+                        .setValues(Collections.singletonList(rows.get(i))));
+            }
+            BatchUpdateValuesRequest body = new BatchUpdateValuesRequest()
+                    .setData(data)
+                    .setValueInputOption("USER_ENTERED");
+            sheets.spreadsheets().values()
+                    .batchUpdate(spreadsheetId, body)
+                    .execute();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to batch update rows: " + range, e);
+        }
+    }
+
+    private String buildRowRange(String range, int rowIndex) {
+        Matcher matcher = RANGE_PATTERN.matcher(range);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Unsupported range format: " + range);
+        }
+        String sheet = matcher.group("sheet");
+        String startCol = matcher.group("startCol");
+        String endCol = matcher.group("endCol");
+        int startRow = Integer.parseInt(matcher.group("startRow"));
+        int targetRow = startRow + rowIndex;
+        String sheetPrefix = sheet == null ? "" : sheet + "!";
+        return sheetPrefix + startCol + targetRow + ":" + endCol + targetRow;
     }
 }
