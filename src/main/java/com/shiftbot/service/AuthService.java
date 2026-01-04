@@ -21,23 +21,17 @@ public class AuthService {
         this.zoneId = zoneId;
     }
 
-    public User onboard(long userId, String username, String fullName) {
+    public OnboardResult onboard(long userId, String username, String fullName) {
         Optional<User> existing = usersRepository.findById(userId);
         if (existing.isPresent()) {
             User user = existing.get();
-            boolean changed = false;
-            if (!username.equals(user.getUsername())) {
-                user.setUsername(username);
-                changed = true;
+            if (user.getStatus() == UserStatus.PENDING) {
+                return OnboardResult.pending(user, "Ваша анкета очікує підтвердження від ТМ/Сеньйора.");
             }
-            if (!fullName.equals(user.getFullName())) {
-                user.setFullName(fullName);
-                changed = true;
+            if (user.getStatus() == UserStatus.BLOCKED) {
+                return OnboardResult.blocked(user, "Ваш доступ заблоковано. Зверніться до ТМ/Сеньйора.");
             }
-            if (changed) {
-                usersRepository.update(user);
-            }
-            return user;
+            return OnboardResult.allowed(user);
         }
         User user = new User();
         user.setUserId(userId);
@@ -47,7 +41,20 @@ public class AuthService {
         user.setStatus(UserStatus.PENDING);
         user.setCreatedAt(TimeUtils.nowInstant(zoneId));
         usersRepository.save(user);
-        auditService.logEvent(userId, "user_onboard", "user", String.valueOf(userId), Map.of("username", username));
-        return user;
+        return OnboardResult.pending(user, "Ваша анкета створена та очікує підтвердження від ТМ/Сеньйора.");
+    }
+
+    public record OnboardResult(User user, boolean allowed, String message) {
+        private static OnboardResult allowed(User user) {
+            return new OnboardResult(user, true, null);
+        }
+
+        private static OnboardResult pending(User user, String message) {
+            return new OnboardResult(user, false, message);
+        }
+
+        private static OnboardResult blocked(User user, String message) {
+            return new OnboardResult(user, false, message);
+        }
     }
 }

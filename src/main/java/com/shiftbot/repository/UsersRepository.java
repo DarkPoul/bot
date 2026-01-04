@@ -59,28 +59,38 @@ public class UsersRepository {
     }
 
     public synchronized void save(User user) {
-        List<Object> row = toRow(user);
-        sheetsClient.appendRow(RANGE, row);
+        sheetsClient.appendRow(RANGE, buildRow(user));
         invalidateCache();
     }
 
-    public synchronized void update(User user) {
-        List<User> users = findAll();
-        Integer rowIndex = rowIndexCache != null ? rowIndexCache.get(user.getUserId()) : null;
-        if (rowIndex == null) {
-            throw new IllegalArgumentException("User not found: " + user.getUserId());
+    public synchronized void updateRow(long userId, User user) {
+        List<List<Object>> rows = sheetsClient.readRange(RANGE);
+        if (rows == null) {
+            throw new IllegalArgumentException("User not found for id: " + userId);
         }
-        sheetsClient.updateRow(RANGE, rowIndex, toRow(user));
-        invalidateCache();
+        for (int i = 0; i < rows.size(); i++) {
+            List<Object> row = rows.get(i);
+            try {
+                long rowUserId = Long.parseLong(get(row, 0));
+                if (rowUserId == userId) {
+                    int sheetRowNumber = i + 2; // RANGE starts at A2
+                    sheetsClient.updateRange("users!A" + sheetRowNumber + ":H" + sheetRowNumber, List.of(buildRow(user)));
+                    invalidateCache();
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Skip invalid user row during update: {}", row, e);
+            }
+        }
+        throw new IllegalArgumentException("User not found for id: " + userId);
     }
 
     public synchronized void invalidateCache() {
         cache = null;
         cacheUpdatedAt = null;
-        rowIndexCache = null;
     }
 
-    private List<Object> toRow(User user) {
+    private List<Object> buildRow(User user) {
         List<Object> row = new ArrayList<>();
         row.add(String.valueOf(user.getUserId()));
         row.add(user.getUsername());
