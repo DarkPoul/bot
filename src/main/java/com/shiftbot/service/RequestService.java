@@ -12,6 +12,8 @@ import com.shiftbot.util.TimeUtils;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -28,9 +30,50 @@ public class RequestService {
     }
 
     public Request createCoverRequest(long initiator, String locationId, LocalDate date, LocalTime start, LocalTime end, String comment) {
+        checkForConflicts(initiator, locationId, date, start, end);
+
         Request request = new Request();
         request.setType(RequestType.COVER);
         request.setInitiatorUserId(initiator);
+        request.setLocationId(locationId);
+        request.setDate(date);
+        request.setStartTime(start);
+        request.setEndTime(end);
+        request.setStatus(RequestStatus.WAIT_TM);
+        request.setComment(comment);
+        request.setCreatedAt(TimeUtils.nowInstant(zoneId));
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.save(request);
+        Map<String, Object> details = new HashMap<>();
+        details.put("type", request.getType().name());
+        details.put("status", request.getStatus().name());
+        details.put("date", request.getDate().toString());
+        details.put("locationId", request.getLocationId());
+        auditService.logEvent(initiator, "request_created", "request", request.getRequestId(), details);
+        return request;
+    }
+
+    public Request updateStatus(String requestId, RequestStatus status) {
+        Request request = requestsRepository.findAll().stream()
+                .filter(r -> r.getRequestId().equals(requestId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
+        request.setStatus(status);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
+    public Request createSwapRequest(long initiator, long fromUserId, long toUserId, String locationId, LocalDate date,
+                                     LocalTime start, LocalTime end, String comment) {
+        checkForConflicts(fromUserId, locationId, date, start, end);
+        checkForConflicts(toUserId, locationId, date, start, end);
+
+        Request request = new Request();
+        request.setType(RequestType.SWAP);
+        request.setInitiatorUserId(initiator);
+        request.setFromUserId(fromUserId);
+        request.setToUserId(toUserId);
         request.setLocationId(locationId);
         request.setDate(date);
         request.setStartTime(start);

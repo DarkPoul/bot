@@ -11,23 +11,29 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 public class RequestsRepository {
     private static final String RANGE = "requests!A2:N";
     private final SheetsClient sheetsClient;
+    private Map<String, Integer> rowIndexCache;
 
     public RequestsRepository(SheetsClient sheetsClient) {
         this.sheetsClient = sheetsClient;
     }
 
-    public List<Request> findAll() {
+    public synchronized List<Request> findAll() {
         List<Request> result = new ArrayList<>();
+        rowIndexCache = new HashMap<>();
         List<List<Object>> rows = sheetsClient.readRange(RANGE);
         if (rows != null) {
-            for (List<Object> row : rows) {
+            for (int i = 0; i < rows.size(); i++) {
+                List<Object> row = rows.get(i);
                 Request request = mapRow(row);
                 if (request != null) {
                     result.add(request);
+                    rowIndexCache.put(request.getRequestId(), i);
                 }
             }
         }
