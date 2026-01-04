@@ -29,8 +29,7 @@ public class Application {
         AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
         AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
-        RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
-        AuditService auditService = new AuditService(auditRepository, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, usersRepository, auditService, calendarKeyboardBuilder, config.getZoneId());
