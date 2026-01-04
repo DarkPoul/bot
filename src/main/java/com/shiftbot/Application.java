@@ -7,6 +7,7 @@ import com.shiftbot.config.EnvironmentConfig;
 import com.shiftbot.repository.*;
 import com.shiftbot.service.*;
 import com.shiftbot.state.ConversationStateStore;
+import com.shiftbot.state.CoverRequestFsm;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import org.slf4j.Logger;
@@ -28,16 +29,18 @@ public class Application {
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
         ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
 
-        AuditService auditService = new AuditService(auditRepository, null, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
+        AuditService auditService = new AuditService(auditRepository, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
         AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
-        ConversationStateStore conversationStateStore = new ConversationStateStore(Duration.ofMinutes(10));
 
-        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId(), conversationStateStore);
+        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, locationsRepository,
+                usersRepository, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(), auditService, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
         auditService.setBot(bot);
+
+        ReminderService reminderService = new ReminderService(scheduleService, usersRepository, requestsRepository, bot, config.getZoneId());
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         botsApi.registerBot(bot);
