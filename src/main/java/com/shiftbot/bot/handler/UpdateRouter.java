@@ -88,8 +88,12 @@ public class UpdateRouter {
             // ignore
         } else if (data.startsWith("cover:")) {
             LocalDate date = LocalDate.parse(data.substring("cover:".length()));
-            requestService.createCoverRequest(user.getUserId(), "unknown", date, TimeUtils.DEFAULT_START, TimeUtils.DEFAULT_END, "Авто створено з меню");
-            bot.sendMarkdown(chatId, "Заявка на заміну створена та очікує ТМ", null);
+            try {
+                requestService.createCoverRequest(user.getUserId(), "unknown", date, TimeUtils.DEFAULT_START, TimeUtils.DEFAULT_END, "Авто створено з меню");
+                bot.sendMarkdown(chatId, "Заявка на заміну створена та очікує ТМ", null);
+            } catch (IllegalArgumentException ex) {
+                bot.sendMarkdown(chatId, MarkdownEscaper.escape(ex.getMessage()), null);
+            }
         } else if (data.startsWith("M::")) {
             String action = data.substring("M::".length());
             switch (action) {

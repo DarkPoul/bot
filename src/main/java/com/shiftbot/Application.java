@@ -28,7 +28,7 @@ public class Application {
 
         AuthService authService = new AuthService(usersRepository, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
-        RequestService requestService = new RequestService(requestsRepository, config.getZoneId());
+        RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId());
