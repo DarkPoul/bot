@@ -50,6 +50,17 @@ public class RequestService {
         return request;
     }
 
+    public Request updateStatus(String requestId, RequestStatus status) {
+        Request request = requestsRepository.findAll().stream()
+                .filter(r -> r.getRequestId().equals(requestId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId));
+        request.setStatus(status);
+        request.setUpdatedAt(TimeUtils.nowInstant(zoneId));
+        requestsRepository.update(request);
+        return request;
+    }
+
     public List<Request> requestsByUser(long userId) {
         return requestsRepository.findAll().stream()
                 .filter(r -> r.getInitiatorUserId() == userId || (r.getFromUserId() != null && r.getFromUserId() == userId) || (r.getToUserId() != null && r.getToUserId() == userId))
