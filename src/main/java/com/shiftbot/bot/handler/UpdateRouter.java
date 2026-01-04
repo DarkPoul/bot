@@ -9,7 +9,7 @@ import com.shiftbot.model.Location;
 import com.shiftbot.model.Request;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.ShiftStatus;
-import com.shiftbot.service.AuditService;
+import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.service.AuthService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
@@ -43,11 +43,11 @@ public class UpdateRouter {
     private final CoverRequestFsm coverRequestFsm;
     private final AuditService auditService;
     private final ZoneId zoneId;
+    private final ConversationStateStore conversationStateStore;
+    private final CoverRequestConversationHandler coverRequestConversationHandler;
 
     public UpdateRouter(AuthService authService, ScheduleService scheduleService, RequestService requestService,
-                        CalendarKeyboardBuilder calendarKeyboardBuilder, LocationsRepository locationsRepository,
-                        ConversationStateStore stateStore, CoverRequestFsm coverRequestFsm, AuditService auditService,
-                        ZoneId zoneId) {
+                        CalendarKeyboardBuilder calendarKeyboardBuilder, ZoneId zoneId, ConversationStateStore conversationStateStore) {
         this.authService = authService;
         this.scheduleService = scheduleService;
         this.requestService = requestService;
@@ -59,6 +59,8 @@ public class UpdateRouter {
         this.coverRequestFsm = coverRequestFsm;
         this.auditService = auditService;
         this.zoneId = zoneId;
+        this.conversationStateStore = conversationStateStore;
+        this.coverRequestConversationHandler = new CoverRequestConversationHandler(conversationStateStore, requestService, zoneId);
     }
 
     public void handle(Update update, BotNotificationPort bot) {
@@ -89,6 +91,16 @@ public class UpdateRouter {
 
         if (text.startsWith("/start")) {
             bot.sendMarkdown(chatId, "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!", mainMenu(user));
+            return;
+        }
+
+        if (isCancel(text)) {
+            coverRequestConversationHandler.handleUserInput(user, text, bot);
+            return;
+        }
+
+        if (coverRequestConversationHandler.hasConversation(user.getUserId())) {
+            coverRequestConversationHandler.handleUserInput(user, text, bot);
             return;
         }
 
@@ -151,7 +163,11 @@ public class UpdateRouter {
         } else if (data.startsWith("swapTmReject:")) {
             handleTmDecision(data.substring("swapTmReject:".length()), false, bot);
         } else if ("noop".equals(data)) {
-            // ignore
+            coverRequestConversationHandler.handleNoop(chatId, bot);
+        } else if (data.startsWith("cover:")) {
+            LocalDate date = LocalDate.parse(data.substring("cover:".length()));
+            requestService.createCoverRequest(user.getUserId(), "unknown", date, TimeUtils.DEFAULT_START, TimeUtils.DEFAULT_END, "Авто створено з меню");
+            bot.sendMarkdown(chatId, "Заявка на заміну створена та очікує ТМ", null);
         } else if (data.startsWith("M::")) {
             String action = data.substring("M::".length());
             switch (action) {
@@ -179,415 +195,8 @@ public class UpdateRouter {
         bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), calendar);
     }
 
-    private void startCoverFlow(User user, BotNotificationPort bot) {
-        ConversationState state = coverRequestFsm.start();
-        stateStore.put(user.getUserId(), state);
-        promptCoverDate(user, bot);
-    }
-
-    private void promptCoverDate(User user, BotNotificationPort bot) {
-        LocalDate startMonth = TimeUtils.today(zoneId);
-        InlineKeyboardMarkup calendar = calendarKeyboardBuilder.buildMonth(startMonth, Collections.emptyMap(), "cover:date:");
-        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>(calendar.getKeyboard());
-        keyboard.add(Collections.singletonList(InlineKeyboardButton.builder().text("❌ Скасувати").callbackData("cover:abort").build()));
-        calendar.setKeyboard(keyboard);
-        bot.sendMarkdown(user.getUserId(), "🆘 Оберіть дату зміни (календар або формат YYYY-MM-DD)", calendar);
-    }
-
-    private void promptCoverTime(User user, ConversationState nextState, BotNotificationPort bot) {
-        stateStore.put(user.getUserId(), nextState);
-        bot.sendMarkdown(user.getUserId(), "⏱️ Вкажіть час у форматі HH:mm-HH:mm", null);
-    }
-
-    private void promptCoverLocation(User user, ConversationState current, BotNotificationPort bot) {
-        stateStore.put(user.getUserId(), coverRequestFsm.advance(current, CoverRequestFsm.Step.LOCATION, null));
-        List<Location> activeLocations = locationsRepository.findActive();
-        if (activeLocations.isEmpty()) {
-            bot.sendMarkdown(user.getUserId(), "⚠️ Немає активних локацій, введіть ID вручну", null);
-            return;
-        }
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (Location location : activeLocations) {
-            rows.add(Collections.singletonList(InlineKeyboardButton.builder()
-                    .text(location.getName())
-                    .callbackData("cover:loc:" + location.getLocationId())
-                    .build()));
-        }
-        rows.add(Collections.singletonList(InlineKeyboardButton.builder().text("❌ Скасувати").callbackData("cover:abort").build()));
-        markup.setKeyboard(rows);
-        bot.sendMarkdown(user.getUserId(), "📍 Оберіть локацію", markup);
-    }
-
-    private void promptCoverComment(User user, ConversationState current, BotNotificationPort bot) {
-        stateStore.put(user.getUserId(), coverRequestFsm.advance(current, CoverRequestFsm.Step.COMMENT, null));
-        bot.sendMarkdown(user.getUserId(), "💬 Додайте коментар або напишіть '-' щоб пропустити", null);
-    }
-
-    private boolean handleCoverMessage(User user, Message message, ConversationState state, BotNotificationPort bot) {
-        String text = message.getText();
-        switch (coverRequestFsm.currentStep(state)) {
-            case DATE -> {
-                Optional<LocalDate> parsed = parseDate(text);
-                if (parsed.isEmpty()) {
-                    bot.sendMarkdown(user.getUserId(), "⚠️ Дата має бути у форматі YYYY-MM-DD", null);
-                    return true;
-                }
-                Map<String, String> data = new HashMap<>(state.getData());
-                data.put(CoverRequestFsm.DATE_KEY, parsed.get().toString());
-                ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.TIME, data);
-                promptCoverTime(user, next, bot);
-                return true;
-            }
-            case TIME -> {
-                Optional<LocalTime[]> range = parseTimeRange(text);
-                if (range.isEmpty()) {
-                    bot.sendMarkdown(user.getUserId(), "⚠️ Час має бути у форматі HH:mm-HH:mm", null);
-                    return true;
-                }
-                Map<String, String> data = new HashMap<>(state.getData());
-                data.put(CoverRequestFsm.START_KEY, range.get()[0].toString());
-                data.put(CoverRequestFsm.END_KEY, range.get()[1].toString());
-                ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.LOCATION, data);
-                stateStore.put(user.getUserId(), next);
-                promptCoverLocation(user, next, bot);
-                return true;
-            }
-            case LOCATION -> {
-                String locationId = text.trim();
-                Map<String, String> data = new HashMap<>(state.getData());
-                data.put(CoverRequestFsm.LOCATION_KEY, locationId);
-                ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.COMMENT, data);
-                stateStore.put(user.getUserId(), next);
-                promptCoverComment(user, next, bot);
-                return true;
-            }
-            case COMMENT -> {
-                Map<String, String> data = new HashMap<>(state.getData());
-                data.put(CoverRequestFsm.COMMENT_KEY, text);
-                ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.COMMENT, data);
-                completeCoverRequest(user, next, bot);
-                return true;
-            }
-            default -> {
-                return false;
-            }
-        }
-    }
-
-    private void handleCoverCallback(User user, CallbackQuery callback, ConversationState state, BotNotificationPort bot) {
-        String data = callback.getData();
-        if (data.startsWith("cover:abort")) {
-            stateStore.clear(user.getUserId());
-            bot.sendMarkdown(callback.getMessage().getChatId(), "⏹️ Заявка скасована", mainMenu(user));
-            return;
-        }
-        if (data.startsWith("cover:date:")) {
-            LocalDate date = LocalDate.parse(data.substring("cover:date:".length()));
-            Map<String, String> params = new HashMap<>(state.getData());
-            params.put(CoverRequestFsm.DATE_KEY, date.toString());
-            ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.TIME, params);
-            promptCoverTime(user, next, bot);
-            return;
-        }
-        if (data.startsWith("cover:loc:")) {
-            String locationId = data.substring("cover:loc:".length());
-            Map<String, String> params = new HashMap<>(state.getData());
-            params.put(CoverRequestFsm.LOCATION_KEY, locationId);
-            ConversationState next = coverRequestFsm.advance(state, CoverRequestFsm.Step.COMMENT, params);
-            stateStore.put(user.getUserId(), next);
-            promptCoverComment(user, next, bot);
-        }
-    }
-
-    private void completeCoverRequest(User user, ConversationState state, BotNotificationPort bot) {
-        try {
-            LocalDate date = LocalDate.parse(state.getData().get(CoverRequestFsm.DATE_KEY));
-            LocalTime start = LocalTime.parse(state.getData().getOrDefault(CoverRequestFsm.START_KEY, TimeUtils.DEFAULT_START.toString()));
-            LocalTime end = LocalTime.parse(state.getData().getOrDefault(CoverRequestFsm.END_KEY, TimeUtils.DEFAULT_END.toString()));
-            String locationId = state.getData().getOrDefault(CoverRequestFsm.LOCATION_KEY, "unknown");
-            String comment = state.getData().getOrDefault(CoverRequestFsm.COMMENT_KEY, "-");
-            Request request = requestService.createCoverRequest(user.getUserId(), locationId, date, start, end, comment);
-            stateStore.clear(user.getUserId());
-            bot.sendMarkdown(user.getUserId(), "✅ Заявка створена та очікує підтвердження ТМ\n" + MarkdownEscaper.escape(formatRequest(request)), null);
-            auditService.logEvent(user.getUserId(), "Створена заявка на заміну", "REQUEST", request.getRequestId(), Map.of(
-                    "status", request.getStatus().name(),
-                    "locationId", request.getLocationId()
-            ));
-        } catch (Exception e) {
-            bot.sendMarkdown(user.getUserId(), "⚠️ Не вдалося створити заявку: " + MarkdownEscaper.escape(e.getMessage()), null);
-        }
-    }
-
-    private void startSwapFlow(User user, BotNotificationPort bot) {
-        ConversationState state = new ConversationState("SWAP_SELECT_DATE");
-        stateStore.put(user.getUserId(), state);
-        LocalDate today = TimeUtils.today(zoneId);
-        Map<LocalDate, ShiftStatus> statuses = scheduleService.calendarStatuses(user.getUserId(), today);
-        InlineKeyboardMarkup calendar = calendarKeyboardBuilder.buildMonth(today, statuses, "swapDate:");
-        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape("🔁 Оберіть день своєї зміни для підміни"), calendar);
-    }
-
-    private void showSwapShifts(User user, LocalDate date, BotNotificationPort bot) {
-        List<Shift> shifts = scheduleService.shiftsForDate(user.getUserId(), date);
-        if (shifts.isEmpty()) {
-            bot.sendMarkdown(user.getUserId(), "⬜ Немає змін на " + TimeUtils.humanDate(date, zoneId), null);
-            return;
-        }
-        ConversationState state = new ConversationState("SWAP_SELECT_SHIFT");
-        state.getData().put("date", date.toString());
-        stateStore.put(user.getUserId(), state);
-
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (Shift shift : shifts) {
-            String label = TimeUtils.humanTimeRange(shift.getStartTime(), shift.getEndTime()) + " | " + shift.getLocationId();
-            rows.add(Collections.singletonList(InlineKeyboardButton.builder()
-                    .text(label)
-                    .callbackData("swapShift:" + date + ":" + shift.getShiftId())
-                    .build()));
-        }
-        markup.setKeyboard(rows);
-        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape("Оберіть зміну для підміни"), markup);
-    }
-
-    private void handleSwapShift(User user, LocalDate date, String shiftId, BotNotificationPort bot) {
-        Shift fromShift = findShift(scheduleService.shiftsForDate(user.getUserId(), date), shiftId);
-        if (fromShift == null) {
-            bot.sendMarkdown(user.getUserId(), "Зміну не знайдено, спробуйте ще раз", null);
-            return;
-        }
-        ConversationState state = new ConversationState("SWAP_SELECT_PEER");
-        state.getData().put("date", date.toString());
-        state.getData().put("shiftId", shiftId);
-        stateStore.put(user.getUserId(), state);
-        promptSwapPeer(user, fromShift, date, bot);
-    }
-
-    private void promptSwapPeer(User user, Shift fromShift, LocalDate date, BotNotificationPort bot) {
-        List<User> peers = usersRepository.findAll().stream()
-                .filter(u -> u.getStatus() == UserStatus.ACTIVE && u.getUserId() != user.getUserId())
-                .toList();
-        if (peers.isEmpty()) {
-            bot.sendMarkdown(user.getUserId(), "Активних колег не знайдено", null);
-            return;
-        }
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        List<InlineKeyboardButton> currentRow = new ArrayList<>();
-        for (User peer : peers) {
-            currentRow.add(InlineKeyboardButton.builder()
-                    .text(peer.getFullName())
-                    .callbackData("swapPeer:" + peer.getUserId())
-                    .build());
-            if (currentRow.size() == 2) {
-                rows.add(currentRow);
-                currentRow = new ArrayList<>();
-            }
-        }
-        if (!currentRow.isEmpty()) {
-            rows.add(currentRow);
-        }
-        markup.setKeyboard(rows);
-        String text = "Зміна " + TimeUtils.humanDate(date, zoneId) + " " +
-                TimeUtils.humanTimeRange(fromShift.getStartTime(), fromShift.getEndTime()) +
-                " (" + fromShift.getLocationId() + "). Оберіть отримувача підміни:";
-        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), markup);
-    }
-
-    private void handleSwapPeer(User user, long peerId, BotNotificationPort bot) {
-        Optional<ConversationState> stateOpt = stateStore.get(user.getUserId());
-        if (stateOpt.isEmpty()) {
-            startSwapFlow(user, bot);
-            return;
-        }
-        ConversationState state = stateOpt.get();
-        String dateStr = state.getData().get("date");
-        String shiftId = state.getData().get("shiftId");
-        if (dateStr == null || shiftId == null) {
-            startSwapFlow(user, bot);
-            return;
-        }
-        LocalDate date = LocalDate.parse(dateStr);
-        Shift fromShift = findShift(scheduleService.shiftsForDate(user.getUserId(), date), shiftId);
-        if (fromShift == null) {
-            bot.sendMarkdown(user.getUserId(), "Зміну не знайдено, спробуйте знову", null);
-            return;
-        }
-        ConversationState nextState = new ConversationState("SWAP_SELECT_TARGET");
-        nextState.getData().put("date", date.toString());
-        nextState.getData().put("shiftId", shiftId);
-        nextState.getData().put("peerId", String.valueOf(peerId));
-        stateStore.put(user.getUserId(), nextState);
-        List<Shift> peerShifts = scheduleService.shiftsForDate(peerId, date);
-
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (Shift shift : peerShifts) {
-            String text = "Обмін на " + TimeUtils.humanTimeRange(shift.getStartTime(), shift.getEndTime()) + " " + shift.getLocationId();
-            rows.add(Collections.singletonList(InlineKeyboardButton.builder()
-                    .text(text)
-                    .callbackData("swapTarget:" + shift.getShiftId())
-                    .build()));
-        }
-        rows.add(Collections.singletonList(InlineKeyboardButton.builder()
-                .text("Передати мою зміну без обміну")
-                .callbackData("swapTarget:none")
-                .build()));
-        markup.setKeyboard(rows);
-        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape("Виберіть зміну колеги або надішліть без обміну"), markup);
-    }
-
-    private void handleSwapTarget(User user, String targetId, BotNotificationPort bot) {
-        Optional<ConversationState> stateOpt = stateStore.get(user.getUserId());
-        if (stateOpt.isEmpty()) {
-            startSwapFlow(user, bot);
-            return;
-        }
-        ConversationState state = stateOpt.get();
-        String dateStr = state.getData().get("date");
-        String shiftId = state.getData().get("shiftId");
-        String peerIdStr = state.getData().get("peerId");
-        if (dateStr == null || shiftId == null || peerIdStr == null) {
-            startSwapFlow(user, bot);
-            return;
-        }
-        LocalDate date = LocalDate.parse(dateStr);
-        long peerId = Long.parseLong(peerIdStr);
-        Shift fromShift = findShift(scheduleService.shiftsForDate(user.getUserId(), date), shiftId);
-        if (fromShift == null) {
-            bot.sendMarkdown(user.getUserId(), "Зміну не знайдено, почніть спочатку", null);
-            return;
-        }
-        Shift targetShift = null;
-        if (!"none".equals(targetId)) {
-            targetShift = findShift(scheduleService.shiftsForDate(peerId, date), targetId);
-        }
-        String comment = buildSwapComment(fromShift, targetShift);
-        Request request = requestService.createSwapRequest(fromShift, user.getUserId(), peerId, comment, targetShift);
-        stateStore.clear(user.getUserId());
-
-        User peer = usersRepository.findById(peerId).orElse(null);
-        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape("Запит на підміну відправлено " + (peer != null ? peer.getFullName() : "колезі")), null);
-        notifyPeer(request, user, peer, targetShift, bot);
-    }
-
-    private void handlePeerDecision(User peerUser, String requestId, boolean accepted, BotNotificationPort bot) {
-        Optional<Request> requestOpt = requestService.findById(requestId);
-        if (requestOpt.isEmpty()) {
-            bot.sendMarkdown(peerUser.getUserId(), "Запит не знайдено або прострочений", null);
-            return;
-        }
-        Request request;
-        if (accepted) {
-            request = requestService.acceptByPeer(requestId);
-            bot.sendMarkdown(peerUser.getUserId(), "Ви підтвердили підміну. Очікує рішення ТМ.", null);
-            notifyTm(request, bot);
-        } else {
-            request = requestService.declineByPeer(requestId);
-            bot.sendMarkdown(peerUser.getUserId(), "Ви відхилили підміну.", null);
-            notifyInitiatorResult(request, false, bot);
-        }
-    }
-
-    private void handleTmDecision(String requestId, boolean approved, BotNotificationPort bot) {
-        Optional<Request> requestOpt = requestService.findById(requestId);
-        if (requestOpt.isEmpty()) {
-            return;
-        }
-        Request request = approved ? requestService.approveByTm(requestId) : requestService.rejectByTm(requestId);
-        notifyInitiatorResult(request, approved, bot);
-    }
-
-    private void notifyPeer(Request request, User initiator, User peer, Shift targetShift, BotNotificationPort bot) {
-        if (peer == null) {
-            return;
-        }
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(Arrays.asList(
-                InlineKeyboardButton.builder().text("✅ Прийняти").callbackData("swapPeerAccept:" + request.getRequestId()).build(),
-                InlineKeyboardButton.builder().text("❌ Відхилити").callbackData("swapPeerDecline:" + request.getRequestId()).build()
-        ));
-        markup.setKeyboard(rows);
-
-        StringBuilder text = new StringBuilder();
-        text.append("🔁 Запит на підміну від ").append(initiator.getFullName()).append("\\n");
-        text.append("Зміна: ").append(formatRequest(request)).append("\\n");
-        if (targetShift != null) {
-            text.append("Обмін на: ").append(formatShift(targetShift)).append("\\n");
-        } else {
-            text.append("Без зустрічної зміни.").append("\\n");
-        }
-        text.append("Коментар: ").append(request.getComment());
-        bot.sendMarkdown(peer.getUserId(), MarkdownEscaper.escape(text.toString()), markup);
-    }
-
-    private void notifyTm(Request request, BotNotificationPort bot) {
-        List<User> tms = usersRepository.findAll().stream()
-                .filter(u -> u.getStatus() == UserStatus.ACTIVE && (u.getRole() == Role.TM || u.getRole() == Role.SENIOR))
-                .toList();
-        if (tms.isEmpty()) {
-            return;
-        }
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(Arrays.asList(
-                InlineKeyboardButton.builder().text("✅ Погодити").callbackData("swapTmApprove:" + request.getRequestId()).build(),
-                InlineKeyboardButton.builder().text("❌ Відхилити").callbackData("swapTmReject:" + request.getRequestId()).build()
-        ));
-        markup.setKeyboard(rows);
-        String initiatorName = usersRepository.findById(request.getInitiatorUserId()).map(User::getFullName).orElse("Працівник");
-        String peerName = request.getToUserId() != null ? usersRepository.findById(request.getToUserId()).map(User::getFullName).orElse("Колега") : "Колега";
-        String text = "🔁 Підміна очікує погодження ТМ\\n" +
-                "Ініціатор: " + initiatorName + "\\n" +
-                "Учасник: " + peerName + "\\n" +
-                "Зміна: " + formatRequest(request) + "\\n" +
-                "Коментар: " + request.getComment();
-        for (User tm : tms) {
-            bot.sendMarkdown(tm.getUserId(), MarkdownEscaper.escape(text), markup);
-        }
-    }
-
-    private void notifyInitiatorResult(Request request, boolean approved, BotNotificationPort bot) {
-        usersRepository.findById(request.getInitiatorUserId()).ifPresent(initiator -> {
-            String text = approved ? "✅ ТМ погодив підміну" : "❌ Підміну відхилено";
-            bot.sendMarkdown(initiator.getUserId(), text, null);
-        });
-        if (request.getToUserId() != null) {
-            usersRepository.findById(request.getToUserId()).ifPresent(peer -> {
-                String text = approved ? "✅ Підміна погоджена ТМ" : "ℹ️ Підміна відхилена ТМ";
-                bot.sendMarkdown(peer.getUserId(), text, null);
-            });
-        }
-    }
-
-    private Shift findShift(List<Shift> shifts, String shiftId) {
-        return shifts.stream().filter(s -> shiftId.equals(s.getShiftId())).findFirst().orElse(null);
-    }
-
-    private String buildSwapComment(Shift fromShift, Shift targetShift) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Підміна зміни ").append(TimeUtils.humanDate(fromShift.getDate(), zoneId)).append(" ")
-                .append(TimeUtils.humanTimeRange(fromShift.getStartTime(), fromShift.getEndTime()))
-                .append(" ").append(fromShift.getLocationId());
-        if (targetShift != null) {
-            sb.append(" на ").append(TimeUtils.humanDate(targetShift.getDate(), zoneId)).append(" ")
-                    .append(TimeUtils.humanTimeRange(targetShift.getStartTime(), targetShift.getEndTime()))
-                    .append(" ").append(targetShift.getLocationId());
-        }
-        return sb.toString();
-    }
-
-    private String formatShift(Shift shift) {
-        return TimeUtils.humanDate(shift.getDate(), zoneId) + " " + TimeUtils.humanTimeRange(shift.getStartTime(), shift.getEndTime()) +
-                " (" + shift.getLocationId() + ")";
-    }
-
-    private String formatRequest(Request request) {
-        return TimeUtils.humanDate(request.getDate(), zoneId) + " " +
-                TimeUtils.humanTimeRange(request.getStartTime(), request.getEndTime()) +
-                " (" + request.getLocationId() + ")";
+    private void sendCoverRequestIntro(User user, BotNotificationPort bot) {
+        coverRequestConversationHandler.start(user, bot);
     }
 
     private InlineKeyboardMarkup mainMenu(User user) {
@@ -736,47 +345,8 @@ public class UpdateRouter {
         return StringUtils.trimToEmpty(first + " " + (last == null ? "" : last));
     }
 
-    private Optional<LocalDate> parseDate(String text) {
-        try {
-            return Optional.of(LocalDate.parse(text.trim()));
-        } catch (Exception e) {
-            return Optional.empty();
-        }
-    }
-
-    private Optional<LocalTime[]> parseTimeRange(String text) {
-        if (text == null) {
-            return Optional.empty();
-        }
-        String sanitized = text.replace("–", "-").replace("—", "-");
-        String[] parts = sanitized.split("-");
-        if (parts.length != 2) {
-            return Optional.empty();
-        }
-        try {
-            LocalTime start = LocalTime.parse(parts[0].trim());
-            LocalTime end = LocalTime.parse(parts[1].trim());
-            return Optional.of(new LocalTime[]{start, end});
-        } catch (Exception e) {
-            return Optional.empty();
-        }
-    }
-
-    private String formatRequest(Request request) {
-        String locationName = locationsRepository.findById(request.getLocationId())
-                .map(Location::getName)
-                .orElse(request.getLocationId());
-        return TimeUtils.humanDate(request.getDate(), zoneId) + " " +
-                TimeUtils.humanTimeRange(request.getStartTime(), request.getEndTime()) + " | " +
-                locationName + " | " + request.getStatus().name();
-    }
-
-    private String shortId(String requestId) {
-        if (requestId == null || requestId.length() < 8) return requestId;
-        return requestId.substring(0, 8);
-    }
-
-    private boolean isAbortCommand(String text) {
-        return "/stop".equalsIgnoreCase(text) || "/cancel".equalsIgnoreCase(text) || "скасувати".equalsIgnoreCase(text);
+    private boolean isCancel(String text) {
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("cancel") || normalized.equals("/cancel");
     }
 }
