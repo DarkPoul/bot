@@ -73,11 +73,16 @@ public class UsersRepository {
         long userId = Long.parseLong(get(row, 0));
         String username = get(row, 1);
         String fullName = get(row, 2);
-        String phone = get(row, 3);
-        Role role = Role.valueOf(get(row, 4));
-        UserStatus status = UserStatus.valueOf(get(row, 5));
-        Instant createdAt = get(row, 6).isEmpty() ? null : Instant.parse(get(row, 6));
-        Long createdBy = get(row, 7).isEmpty() ? null : Long.parseLong(get(row, 7));
+        boolean phoneMissing = isRoleValue(get(row, 3)) && !isRoleValue(get(row, 4));
+        String phone = phoneMissing ? "" : get(row, 3);
+        String roleValue = phoneMissing ? get(row, 3) : get(row, 4);
+        String statusValue = phoneMissing ? get(row, 4) : get(row, 5);
+        String createdAtValue = phoneMissing ? get(row, 5) : get(row, 6);
+        String createdByValue = phoneMissing ? get(row, 6) : get(row, 7);
+        Role role = Role.valueOf(roleValue);
+        UserStatus status = UserStatus.valueOf(statusValue);
+        Instant createdAt = createdAtValue.isEmpty() ? null : Instant.parse(createdAtValue);
+        Long createdBy = createdByValue.isEmpty() ? null : Long.parseLong(createdByValue);
         return new User(userId, username, fullName, phone, role, status, createdAt, createdBy);
     }
 
@@ -86,5 +91,17 @@ public class UsersRepository {
             return row.get(idx).toString();
         }
         return "";
+    }
+
+    private boolean isRoleValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        try {
+            Role.valueOf(value);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }
