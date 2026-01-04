@@ -2,10 +2,13 @@ package com.shiftbot.bot.handler;
 
 import com.shiftbot.bot.BotNotificationPort;
 import com.shiftbot.bot.ui.CalendarKeyboardBuilder;
+import com.shiftbot.model.Location;
 import com.shiftbot.model.Shift;
 import com.shiftbot.model.User;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.ShiftStatus;
+import com.shiftbot.repository.LocationsRepository;
+import com.shiftbot.repository.UsersRepository;
 import com.shiftbot.service.AuthService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
@@ -26,14 +29,19 @@ public class UpdateRouter {
     private final AuthService authService;
     private final ScheduleService scheduleService;
     private final RequestService requestService;
+    private final LocationsRepository locationsRepository;
+    private final UsersRepository usersRepository;
     private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final ZoneId zoneId;
 
     public UpdateRouter(AuthService authService, ScheduleService scheduleService, RequestService requestService,
+                        LocationsRepository locationsRepository, UsersRepository usersRepository,
                         CalendarKeyboardBuilder calendarKeyboardBuilder, ZoneId zoneId) {
         this.authService = authService;
         this.scheduleService = scheduleService;
         this.requestService = requestService;
+        this.locationsRepository = locationsRepository;
+        this.usersRepository = usersRepository;
         this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.zoneId = zoneId;
     }
@@ -59,6 +67,7 @@ public class UpdateRouter {
         switch (text) {
             case "Мій графік", "📅 Мій графік" -> sendMySchedule(user, bot);
             case "Потрібна заміна", "🆘 Потрібна заміна" -> sendCoverRequestIntro(user, bot);
+            case "🏪 Графік локації" -> sendLocationPicker(user, bot);
             default -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
         }
     }
@@ -94,8 +103,19 @@ public class UpdateRouter {
             String action = data.substring("M::".length());
             switch (action) {
                 case "my" -> sendMySchedule(user, bot);
+                case "location" -> sendLocationPicker(user, bot);
                 case "cover" -> sendCoverRequestIntro(user, bot);
                 default -> bot.sendMarkdown(chatId, "Меню в розробці", null);
+            }
+        } else if (data.startsWith("location_pick:")) {
+            String locationId = data.substring("location_pick:".length());
+            sendLocationCalendar(user, locationId, bot);
+        } else if (data.startsWith("location:")) {
+            String[] parts = data.split(":");
+            if (parts.length == 3) {
+                String locationId = parts[1];
+                LocalDate date = LocalDate.parse(parts[2]);
+                sendLocationSchedule(user, locationId, date, bot);
             }
         }
     }
@@ -119,6 +139,60 @@ public class UpdateRouter {
         markup.setKeyboard(rows);
         String text = "🆘 Потрібна заміна? Оберіть дату";
         bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), markup);
+    }
+
+    void sendLocationPicker(User user, BotNotificationPort bot) {
+        List<Location> locations = locationsRepository.findAll().stream()
+                .filter(Location::isActive)
+                .toList();
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (Location location : locations) {
+            rows.add(Collections.singletonList(InlineKeyboardButton.builder()
+                    .text(location.getName())
+                    .callbackData("location_pick:" + location.getLocationId())
+                    .build()));
+        }
+        markup.setKeyboard(rows);
+        String text = "🏪 Оберіть локацію для перегляду графіку";
+        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), markup);
+    }
+
+    void sendLocationCalendar(User user, String locationId, BotNotificationPort bot) {
+        LocalDate month = TimeUtils.today(zoneId).withDayOfMonth(1);
+        Map<LocalDate, ShiftStatus> statuses = scheduleService.calendarStatusesForLocation(locationId, month);
+        InlineKeyboardMarkup calendar = calendarKeyboardBuilder.buildMonth(month, statuses, "location:" + locationId + ":");
+        String locationName = locationsRepository.findById(locationId).map(Location::getName).orElse(locationId);
+        String text = "🏪 " + locationName + " — оберіть день";
+        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), calendar);
+    }
+
+    void sendLocationSchedule(User user, String locationId, LocalDate date, BotNotificationPort bot) {
+        List<Shift> shifts = scheduleService.shiftsForLocation(locationId, date);
+        String locationName = locationsRepository.findById(locationId).map(Location::getName).orElse(locationId);
+        if (shifts.isEmpty()) {
+            String text = "⬜ Немає змін для " + locationName + " на " + TimeUtils.humanDate(date, zoneId);
+            bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(text), null);
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("🏪 ").append(locationName).append("\\n");
+        sb.append("📅 ").append(TimeUtils.humanDate(date, zoneId)).append("\\n");
+        for (Shift shift : shifts) {
+            String seller = usersRepository.findById(shift.getUserId())
+                    .map(User::getFullName)
+                    .orElse("ID " + shift.getUserId());
+            sb.append("• ")
+                    .append(TimeUtils.humanTimeRange(shift.getStartTime(), shift.getEndTime()))
+                    .append(" — ")
+                    .append(seller)
+                    .append(" (")
+                    .append(statusLabel(shift.getStatus()))
+                    .append(")")
+                    .append("\\n");
+        }
+        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(sb.toString()), null);
     }
 
     private InlineKeyboardMarkup mainMenu(User user) {
