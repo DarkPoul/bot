@@ -32,7 +32,8 @@ public class Application {
         RequestService requestService = new RequestService(requestsRepository, auditService, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
-        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, config.getZoneId());
+        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, locationsRepository,
+                usersRepository, calendarKeyboardBuilder, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
         auditService.setBot(bot);
 
