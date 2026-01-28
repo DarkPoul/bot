@@ -28,15 +28,26 @@ public class AuthService {
     public OnboardResult onboard(long userId, String username, String fullName) {
         Optional<User> existing = usersRepository.findById(userId);
         if (existing.isPresent()) {
-            User user = existing.get();
-            if (user.getStatus() == UserStatus.BLOCKED) {
-                return OnboardResult.blocked(user, "Ваш доступ заблоковано. Зверніться до ТМ/Сеньйора.");
-            }
-            if (user.getStatus() == UserStatus.PENDING) {
-                return OnboardResult.pending(user, "Ваша анкета очікує підтвердження від ТМ/Сеньйора.");
-            }
-            return OnboardResult.allowed(user, null);
+            return evaluateExisting(existing.get());
         }
+        return register(userId, username, fullName);
+    }
+
+    public Optional<User> findExisting(long userId) {
+        return usersRepository.findById(userId);
+    }
+
+    public OnboardResult evaluateExisting(User user) {
+        if (user.getStatus() == UserStatus.BLOCKED) {
+            return OnboardResult.blocked(user, "Ваш доступ заблоковано. Зверніться до ТМ/Сеньйора.");
+        }
+        if (user.getStatus() == UserStatus.PENDING) {
+            return OnboardResult.pending(user, "Ваша анкета очікує підтвердження від ТМ/Сеньйора.");
+        }
+        return OnboardResult.allowed(user, null);
+    }
+
+    public OnboardResult register(long userId, String username, String fullName) {
         User user = new User();
         user.setUserId(userId);
         user.setUsername(username);

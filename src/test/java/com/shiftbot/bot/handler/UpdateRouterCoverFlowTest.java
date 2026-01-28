@@ -64,7 +64,8 @@ class UpdateRouterCoverFlowTest {
         domainUser.setUserId(123L);
         domainUser.setRole(Role.SELLER);
         domainUser.setFullName("Test User");
-        when(authService.onboard(anyLong(), any(), any())).thenReturn(new AuthService.OnboardResult(domainUser, true, null));
+        when(authService.findExisting(anyLong())).thenReturn(java.util.Optional.of(domainUser));
+        when(authService.evaluateExisting(domainUser)).thenReturn(new AuthService.OnboardResult(domainUser, true, null));
     }
 
     @Test

@@ -44,7 +44,8 @@ class UpdateRouterSwapHandlerTest {
         BotNotificationPort bot = Mockito.mock(BotNotificationPort.class);
 
         User peer = new User(20L, "peer", "Peer User", "", Role.SELLER, UserStatus.ACTIVE, null, null);
-        when(authService.onboard(anyLong(), any(), any())).thenReturn(new AuthService.OnboardResult(peer, true, null));
+        when(authService.findExisting(anyLong())).thenReturn(Optional.of(peer));
+        when(authService.evaluateExisting(peer)).thenReturn(new AuthService.OnboardResult(peer, true, null));
 
         Request request = new Request();
         request.setRequestId("req1");
@@ -86,7 +87,8 @@ class UpdateRouterSwapHandlerTest {
         BotNotificationPort bot = Mockito.mock(BotNotificationPort.class);
 
         User peer = new User(20L, "peer", "Peer User", "", Role.SELLER, UserStatus.ACTIVE, null, null);
-        when(authService.onboard(anyLong(), any(), any())).thenReturn(new AuthService.OnboardResult(peer, true, null));
+        when(authService.findExisting(anyLong())).thenReturn(Optional.of(peer));
+        when(authService.evaluateExisting(peer)).thenReturn(new AuthService.OnboardResult(peer, true, null));
 
         Request request = new Request();
         request.setRequestId("req1");

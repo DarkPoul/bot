@@ -14,6 +14,13 @@ class CoverFlowTest extends FlowTestSupport {
 
     @Test
     void shouldShowCoverRequestButtonFromMenu() {
+        com.shiftbot.model.User user = new com.shiftbot.model.User();
+        user.setUserId(111L);
+        user.setUsername("cover");
+        user.setFullName("Cover User");
+        user.setRole(com.shiftbot.model.enums.Role.SELLER);
+        user.setStatus(com.shiftbot.model.enums.UserStatus.ACTIVE);
+        usersRepository.save(user);
         router.handle(messageUpdate(111L, "cover", "Cover", "User", "🆘 Потрібна заміна"), bot);
 
         SentMessage message = bot.lastMessage();
@@ -27,6 +34,13 @@ class CoverFlowTest extends FlowTestSupport {
     @Test
     void shouldCreateCoverRequestOnCallback() {
         LocalDate targetDate = LocalDate.of(2024, 5, 20);
+        com.shiftbot.model.User user = new com.shiftbot.model.User();
+        user.setUserId(222L);
+        user.setUsername("cover2");
+        user.setFullName("Cover User");
+        user.setRole(com.shiftbot.model.enums.Role.SELLER);
+        user.setStatus(com.shiftbot.model.enums.UserStatus.ACTIVE);
+        usersRepository.save(user);
 
         router.handle(callbackUpdate(222L, "cover2", "Cover", "User", "cover:" + targetDate), bot);
 

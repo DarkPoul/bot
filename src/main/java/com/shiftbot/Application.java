@@ -8,6 +8,7 @@ import com.shiftbot.repository.*;
 import com.shiftbot.service.*;
 import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
+import com.shiftbot.state.OnboardingFsm;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import org.slf4j.Logger;
@@ -24,6 +25,7 @@ public class Application {
 
         UsersRepository usersRepository = new UsersRepository(sheetsClient, Duration.ofMinutes(5));
         LocationsRepository locationsRepository = new LocationsRepository(sheetsClient, Duration.ofMinutes(10));
+        LocationAssignmentsRepository locationAssignmentsRepository = new LocationAssignmentsRepository(sheetsClient);
         ShiftsRepository shiftsRepository = new ShiftsRepository(sheetsClient);
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
@@ -36,7 +38,8 @@ public class Application {
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, locationsRepository,
-                usersRepository, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(), auditService, config.getZoneId());
+                usersRepository, locationAssignmentsRepository, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(),
+                new OnboardingFsm(), auditService, config.getZoneId());
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
         auditService.setBot(bot);
 

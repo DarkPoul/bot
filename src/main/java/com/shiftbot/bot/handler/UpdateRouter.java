@@ -3,6 +3,7 @@ package com.shiftbot.bot.handler;
 import com.shiftbot.bot.BotNotificationPort;
 import com.shiftbot.bot.ui.CalendarKeyboardBuilder;
 import com.shiftbot.model.Location;
+import com.shiftbot.model.LocationAssignment;
 import com.shiftbot.model.Request;
 import com.shiftbot.model.Shift;
 import com.shiftbot.model.User;
@@ -10,6 +11,7 @@ import com.shiftbot.model.enums.RequestStatus;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.ShiftStatus;
 import com.shiftbot.model.enums.UserStatus;
+import com.shiftbot.repository.LocationAssignmentsRepository;
 import com.shiftbot.repository.LocationsRepository;
 import com.shiftbot.repository.UsersRepository;
 import com.shiftbot.service.AuditService;
@@ -19,6 +21,7 @@ import com.shiftbot.service.ScheduleService;
 import com.shiftbot.state.ConversationState;
 import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
+import com.shiftbot.state.OnboardingFsm;
 import com.shiftbot.util.MarkdownEscaper;
 import com.shiftbot.util.TimeUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -40,9 +43,11 @@ public class UpdateRouter {
     private final RequestService requestService;
     private final LocationsRepository locationsRepository;
     private final UsersRepository usersRepository;
+    private final LocationAssignmentsRepository locationAssignmentsRepository;
     private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final ConversationStateStore stateStore;
     private final CoverRequestFsm coverRequestFsm;
+    private final OnboardingFsm onboardingFsm;
     private final AuditService auditService;
     private final ZoneId zoneId;
 
@@ -51,8 +56,8 @@ public class UpdateRouter {
                         RequestService requestService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, null, calendarKeyboardBuilder,
-                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), null, zoneId);
+        this(authService, scheduleService, requestService, null, null, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(), null, zoneId);
     }
 
     public UpdateRouter(AuthService authService,
@@ -62,8 +67,8 @@ public class UpdateRouter {
                         AuditService auditService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, usersRepository, calendarKeyboardBuilder,
-                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), auditService, zoneId);
+        this(authService, scheduleService, requestService, null, usersRepository, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(), auditService, zoneId);
     }
 
     public UpdateRouter(AuthService authService,
@@ -73,8 +78,8 @@ public class UpdateRouter {
                         ConversationStateStore stateStore,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, usersRepository, calendarKeyboardBuilder,
-                stateStore, new CoverRequestFsm(), null, zoneId);
+        this(authService, scheduleService, requestService, null, usersRepository, null, calendarKeyboardBuilder,
+                stateStore, new CoverRequestFsm(), new OnboardingFsm(), null, zoneId);
     }
 
     public UpdateRouter(AuthService authService,
@@ -84,8 +89,8 @@ public class UpdateRouter {
                         UsersRepository usersRepository,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, locationsRepository, usersRepository, calendarKeyboardBuilder,
-                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), null, zoneId);
+        this(authService, scheduleService, requestService, locationsRepository, usersRepository, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(), null, zoneId);
     }
 
     public UpdateRouter(AuthService authService,
@@ -97,8 +102,8 @@ public class UpdateRouter {
                         CoverRequestFsm coverRequestFsm,
                         AuditService auditService,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, locationsRepository, null, calendarKeyboardBuilder,
-                stateStore, coverRequestFsm, auditService, zoneId);
+        this(authService, scheduleService, requestService, locationsRepository, null, null, calendarKeyboardBuilder,
+                stateStore, coverRequestFsm, new OnboardingFsm(), auditService, zoneId);
     }
 
     public UpdateRouter(AuthService authService,
@@ -106,9 +111,11 @@ public class UpdateRouter {
                         RequestService requestService,
                         LocationsRepository locationsRepository,
                         UsersRepository usersRepository,
+                        LocationAssignmentsRepository locationAssignmentsRepository,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ConversationStateStore stateStore,
                         CoverRequestFsm coverRequestFsm,
+                        OnboardingFsm onboardingFsm,
                         AuditService auditService,
                         ZoneId zoneId) {
         this.authService = authService;
@@ -116,9 +123,11 @@ public class UpdateRouter {
         this.requestService = requestService;
         this.locationsRepository = locationsRepository;
         this.usersRepository = usersRepository;
+        this.locationAssignmentsRepository = locationAssignmentsRepository;
         this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.stateStore = stateStore;
         this.coverRequestFsm = coverRequestFsm;
+        this.onboardingFsm = onboardingFsm;
         this.auditService = auditService;
         this.zoneId = zoneId;
     }
@@ -134,8 +143,24 @@ public class UpdateRouter {
     private void handleMessage(Message message, BotNotificationPort bot) {
         Long chatId = message.getChatId();
         String text = message.getText();
-        AuthService.OnboardResult onboard = authService.onboard(chatId, message.getFrom().getUserName(), buildFullName(message));
+        Optional<ConversationState> stateOpt = stateStore.get(chatId);
+        if (stateOpt.isPresent() && onboardingFsm.supports(stateOpt.get())) {
+            if (handleOnboardingMessage(chatId, text, stateOpt.get(), bot)) {
+                return;
+            }
+        }
+
+        Optional<User> existing = authService.findExisting(chatId);
+        if (existing.isEmpty()) {
+            startOnboarding(chatId, bot);
+            return;
+        }
+        AuthService.OnboardResult onboard = authService.evaluateExisting(existing.get());
         User user = onboard.user();
+        if (!onboard.allowed()) {
+            bot.sendMarkdown(chatId, MarkdownEscaper.escape(onboard.message()), null);
+            return;
+        }
 
         if (isAbortCommand(text)) {
             stateStore.clear(chatId);
@@ -143,7 +168,6 @@ public class UpdateRouter {
             return;
         }
 
-        Optional<ConversationState> stateOpt = stateStore.get(chatId);
         if (stateOpt.isPresent() && coverRequestFsm.supports(stateOpt.get())) {
             if (handleCoverMessage(user, text, stateOpt.get(), bot)) {
                 return;
@@ -151,8 +175,7 @@ public class UpdateRouter {
         }
 
         if (text.startsWith("/start")) {
-            String welcome = onboard.message() != null ? onboard.message() :
-                    "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!";
+            String welcome = "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!";
             bot.sendMarkdown(chatId, welcome, mainMenu(user));
             return;
         }
@@ -169,11 +192,24 @@ public class UpdateRouter {
     private void handleCallback(CallbackQuery callback, BotNotificationPort bot) {
         String data = callback.getData();
         Long chatId = callback.getMessage().getChatId();
-        AuthService.OnboardResult onboard = authService.onboard(chatId, callback.getFrom().getUserName(),
-                buildFullName(callback.getFrom().getFirstName(), callback.getFrom().getLastName()));
-        User user = onboard.user();
-
         Optional<ConversationState> stateOpt = stateStore.get(chatId);
+        if (stateOpt.isPresent() && onboardingFsm.supports(stateOpt.get()) && data.startsWith("onboard:loc:")) {
+            handleOnboardingLocation(chatId, data, stateOpt.get(), bot, callback);
+            return;
+        }
+
+        Optional<User> existing = authService.findExisting(chatId);
+        if (existing.isEmpty()) {
+            startOnboarding(chatId, bot);
+            return;
+        }
+        AuthService.OnboardResult onboard = authService.evaluateExisting(existing.get());
+        User user = onboard.user();
+        if (!onboard.allowed()) {
+            bot.sendMarkdown(chatId, MarkdownEscaper.escape(onboard.message()), null);
+            return;
+        }
+
         if (stateOpt.isPresent() && coverRequestFsm.supports(stateOpt.get()) && data.startsWith("cover:")) {
             handleCoverCallback(user, callback, stateOpt.get(), bot);
             return;
@@ -438,6 +474,79 @@ public class UpdateRouter {
         return markup;
     }
 
+    private void startOnboarding(Long chatId, BotNotificationPort bot) {
+        ConversationState state = onboardingFsm.start();
+        stateStore.put(chatId, state);
+        bot.sendMarkdown(chatId, "Для реєстрації введіть ПІБ", null);
+    }
+
+    private boolean handleOnboardingMessage(Long chatId, String text, ConversationState state, BotNotificationPort bot) {
+        OnboardingFsm.Step step = onboardingFsm.currentStep(state);
+        if (step == OnboardingFsm.Step.NAME) {
+            String trimmed = text == null ? "" : text.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("/")) {
+                bot.sendMarkdown(chatId, "Введіть ПІБ у текстовому вигляді", null);
+                return true;
+            }
+            Map<String, String> extra = Map.of(OnboardingFsm.FULL_NAME_KEY, trimmed);
+            ConversationState next = onboardingFsm.advance(state, OnboardingFsm.Step.LOCATION, extra);
+            stateStore.put(chatId, next);
+            sendOnboardingLocationPicker(chatId, bot);
+            return true;
+        }
+        return false;
+    }
+
+    private void sendOnboardingLocationPicker(Long chatId, BotNotificationPort bot) {
+        if (locationsRepository == null) {
+            bot.sendMarkdown(chatId, "Локації недоступні, спробуйте пізніше", null);
+            return;
+        }
+        List<Location> locations = locationsRepository.findActive();
+        if (locations.isEmpty()) {
+            bot.sendMarkdown(chatId, "Локації поки не налаштовані", null);
+            return;
+        }
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (Location location : locations) {
+            rows.add(Collections.singletonList(
+                    InlineKeyboardButton.builder()
+                            .text(location.getName())
+                            .callbackData("onboard:loc:" + location.getLocationId())
+                            .build()
+            ));
+        }
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        bot.sendMarkdown(chatId, "Оберіть локацію", markup);
+    }
+
+    private void handleOnboardingLocation(Long chatId, String data, ConversationState state, BotNotificationPort bot, CallbackQuery callback) {
+        if (locationsRepository == null) {
+            bot.sendMarkdown(chatId, "Локації недоступні, спробуйте пізніше", null);
+            return;
+        }
+        String locationId = data.substring("onboard:loc:".length());
+        if (locationsRepository.findById(locationId).isEmpty()) {
+            bot.sendMarkdown(chatId, "Локацію не знайдено", null);
+            return;
+        }
+        String fullName = state.getData().get(OnboardingFsm.FULL_NAME_KEY);
+        if (fullName == null || fullName.isBlank()) {
+            bot.sendMarkdown(chatId, "Почнімо з ПІБ", null);
+            stateStore.put(chatId, onboardingFsm.start());
+            return;
+        }
+        AuthService.OnboardResult onboard = authService.register(chatId, callback.getFrom().getUserName(), fullName);
+        if (locationAssignmentsRepository != null) {
+            LocationAssignment assignment = new LocationAssignment(locationId, chatId, true, TimeUtils.today(zoneId), null);
+            locationAssignmentsRepository.save(assignment);
+        }
+        stateStore.clear(chatId);
+        String message = onboard.message() != null ? onboard.message() : "Реєстрація завершена.";
+        bot.sendMarkdown(chatId, MarkdownEscaper.escape(message), null);
+    }
+
     private void handleUserStatusChange(User actor, String data, boolean activate, BotNotificationPort bot) {
         if (actor.getRole() != Role.TM && actor.getRole() != Role.SENIOR) {
             bot.sendMarkdown(actor.getUserId(), "⛔ Недостатньо прав для цієї дії", null);
@@ -543,4 +652,3 @@ public class UpdateRouter {
         }
     }
 }
-
