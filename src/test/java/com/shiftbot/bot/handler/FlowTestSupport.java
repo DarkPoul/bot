@@ -54,7 +54,7 @@ abstract class FlowTestSupport {
         scheduleService = new ScheduleService(shiftsRepository, locationsRepository, zoneId);
         requestService = new RequestService(requestsRepository, zoneId);
         calendarKeyboardBuilder = new CalendarKeyboardBuilder();
-        router = new UpdateRouter(authService, scheduleService, requestService, calendarKeyboardBuilder, zoneId);
+        router = new UpdateRouter(authService, scheduleService, requestService, locationsRepository, usersRepository, calendarKeyboardBuilder, zoneId);
         bot = new FakeBot();
     }
 

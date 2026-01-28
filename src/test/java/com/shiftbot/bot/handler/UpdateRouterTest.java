@@ -55,7 +55,8 @@ class UpdateRouterTest {
     @Test
     void handlesUserActivationCallback() {
         User actor = new User(10L, "tm", "TM User", "", Role.TM, UserStatus.ACTIVE, null, null);
-        when(authService.onboard(eq(1L), any(), any())).thenReturn(new AuthService.OnboardResult(actor, true, null));
+        when(authService.findExisting(eq(1L))).thenReturn(Optional.of(actor));
+        when(authService.evaluateExisting(actor)).thenReturn(new AuthService.OnboardResult(actor, true, null));
         User pendingUser = new User(2L, "pending", "Pending User", "", Role.SELLER, UserStatus.PENDING, null, null);
         when(usersRepository.findById(2L)).thenReturn(Optional.of(pendingUser));
 
