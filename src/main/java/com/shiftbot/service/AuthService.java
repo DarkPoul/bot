@@ -64,12 +64,12 @@ public class AuthService {
         user.setCreatedAt(TimeUtils.nowInstant(zoneId));
         usersRepository.save(user);
         if (accessRequestService != null) {
-            accessRequestService.createRequest(user, null);
+            accessRequestService.createPendingIfAbsent(user, null);
         }
         if (auditService != null) {
             auditService.logEvent(userId, "user_onboarded", "user", String.valueOf(userId), Map.of("status", user.getStatus().name()));
         }
-        return OnboardResult.pending(user, "Заявка відправлена, очікуйте підтвердження");
+        return OnboardResult.pending(user, "Заявку на доступ створено ✅ Очікуйте підтвердження старшого.");
     }
 
     public record OnboardResult(User user, boolean allowed, String message) {

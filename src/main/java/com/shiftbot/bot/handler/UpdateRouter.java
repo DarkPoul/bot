@@ -181,8 +181,19 @@ public class UpdateRouter {
         }
         AuthService.OnboardResult onboard = authService.evaluateExisting(existing.get());
         User user = onboard.user();
+
+        if (text.startsWith("/start")) {
+            handleStartCommand(user, onboard, bot);
+            return;
+        }
+
+        if ("🔄 Перевірити статус".equals(text)) {
+            handleStatusCheck(user, bot);
+            return;
+        }
+
         if (!onboard.allowed()) {
-            bot.sendMarkdown(chatId, MarkdownEscaper.escape(onboard.message()), null);
+            handleBlockedUser(user, bot);
             return;
         }
 
@@ -204,18 +215,13 @@ public class UpdateRouter {
             }
         }
 
-        if (text.startsWith("/start")) {
-            String welcome = "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!";
-            bot.sendMarkdown(chatId, welcome, mainMenu(user));
-            return;
-        }
-
         switch (text) {
             case "🗓 Створити/Оновити мій графік" -> startScheduleFlow(user, bot);
             case "👀 Переглянути мій графік" -> sendPersonalSchedule(user, bot);
             case "Потрібна заміна", "🆘 Потрібна заміна" -> startCoverFlow(user, bot);
             case "📥 Мої заявки" -> sendTmRequests(user, bot);
             case "📨 Заявки" -> sendAccessRequests(user, bot);
+            case "🔄 Перевірити статус" -> handleStatusCheck(user, bot);
             case "🔁 Підміни" -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
             default -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
         }
@@ -242,8 +248,14 @@ public class UpdateRouter {
         }
         AuthService.OnboardResult onboard = authService.evaluateExisting(existing.get());
         User user = onboard.user();
+
+        if ("status:check".equals(data)) {
+            handleStatusCheck(user, bot);
+            return;
+        }
+
         if (!onboard.allowed()) {
-            bot.sendMarkdown(chatId, MarkdownEscaper.escape(onboard.message()), null);
+            handleBlockedUser(user, bot);
             return;
         }
 
@@ -668,6 +680,43 @@ public class UpdateRouter {
         bot.sendMarkdown(chatId, "Для реєстрації введіть ПІБ", null);
     }
 
+    private void handleStartCommand(User user, AuthService.OnboardResult onboard, BotNotificationPort bot) {
+        if (onboard.allowed()) {
+            String welcome = "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!";
+            bot.sendMarkdown(user.getUserId(), welcome, mainMenu(user));
+            return;
+        }
+        handlePendingAccess(user, bot);
+    }
+
+    private void handlePendingAccess(User user, BotNotificationPort bot) {
+        if (accessRequestService == null) {
+            bot.sendMarkdown(user.getUserId(), "Доступ ще не підтверджено. Очікуйте рішення старшого.", pendingMenu());
+            return;
+        }
+        Optional<AccessRequest> pending = accessRequestService.getPendingByTelegramUserId(user.getUserId());
+        if (pending.isPresent()) {
+            bot.sendMarkdown(user.getUserId(), "Ви вже очікуєте підтвердження. Статус: Очікує ✅", pendingMenu());
+            return;
+        }
+        accessRequestService.createPendingIfAbsent(user, null);
+        bot.sendMarkdown(user.getUserId(), "Заявку на доступ створено ✅ Очікуйте підтвердження старшого.", pendingMenu());
+    }
+
+    private void handleBlockedUser(User user, BotNotificationPort bot) {
+        bot.sendMarkdown(user.getUserId(), "Доступ ще не підтверджено. Очікуйте рішення старшого.", pendingMenu());
+    }
+
+    private void handleStatusCheck(User user, BotNotificationPort bot) {
+        Optional<User> refreshed = authService.findExisting(user.getUserId());
+        User current = refreshed.orElse(user);
+        if (current.getStatus() == UserStatus.APPROVED) {
+            bot.sendMarkdown(current.getUserId(), "✅ Доступ активовано", mainMenu(current));
+            return;
+        }
+        handlePendingAccess(current, bot);
+    }
+
     private boolean handleOnboardingMessage(Long chatId, String text, ConversationState state, BotNotificationPort bot) {
         OnboardingFsm.Step step = onboardingFsm.currentStep(state);
         if (step == OnboardingFsm.Step.NAME) {
@@ -733,7 +782,7 @@ public class UpdateRouter {
         }
         stateStore.clear(chatId);
         String message = onboard.message() != null ? onboard.message() : "Реєстрація завершена.";
-        bot.sendMarkdown(chatId, MarkdownEscaper.escape(message), null);
+        bot.sendMarkdown(chatId, MarkdownEscaper.escape(message), pendingMenu());
         String locationName = locationOpt.map(Location::getName).orElse(locationId);
         notifyAdminAboutRegistration(chatId, callback.getFrom().getUserName(), fullName, locationName, bot);
     }
@@ -953,6 +1002,14 @@ public class UpdateRouter {
             rows.add(buttonRow("📨 Заявки", "requests:list"));
         }
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup pendingMenu() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(buttonRow("🔄 Перевірити статус", "status:check"));
         markup.setKeyboard(rows);
         return markup;
     }

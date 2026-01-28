@@ -25,7 +25,7 @@ class ActivationFlowTest extends FlowTestSupport {
 
         router.handle(callbackUpdate(101L, "alice", "Alice", "A", "onboard:loc:loc-1"), bot);
         SentMessage done = bot.lastMessage();
-        assertEquals("Заявка відправлена, очікуйте підтвердження", done.text());
+        assertEquals("Заявку на доступ створено ✅ Очікуйте підтвердження старшого.", done.text());
         assertEquals(1, usersRepository.findAll().size());
         User saved = usersRepository.findAll().get(0);
         assertEquals(Role.SELLER, saved.getRole());
