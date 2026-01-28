@@ -245,7 +245,7 @@ abstract class FlowTestSupport {
     }
 
     protected static class InMemorySchedulesRepository extends SchedulesRepository {
-        private final Map<Long, com.shiftbot.model.ScheduleEntry> storage = new LinkedHashMap<>();
+        private final Map<String, com.shiftbot.model.ScheduleEntry> storage = new LinkedHashMap<>();
 
         InMemorySchedulesRepository() {
             super(null);
@@ -253,17 +253,32 @@ abstract class FlowTestSupport {
 
         @Override
         public Optional<com.shiftbot.model.ScheduleEntry> findByUserId(long userId) {
-            return Optional.ofNullable(storage.get(userId));
+            return storage.values().stream()
+                    .filter(entry -> entry.getUserId() == userId)
+                    .findFirst();
+        }
+
+        @Override
+        public Optional<com.shiftbot.model.ScheduleEntry> findByUserAndMonth(long userId, int year, int month) {
+            return Optional.ofNullable(storage.get(key(userId, year, month)));
         }
 
         @Override
         public void save(com.shiftbot.model.ScheduleEntry entry) {
-            storage.put(entry.getUserId(), entry);
+            storage.put(key(entry), entry);
         }
 
         @Override
         public void upsert(com.shiftbot.model.ScheduleEntry entry) {
-            storage.put(entry.getUserId(), entry);
+            storage.put(key(entry), entry);
+        }
+
+        private String key(com.shiftbot.model.ScheduleEntry entry) {
+            return key(entry.getUserId(), entry.getYear(), entry.getMonth());
+        }
+
+        private String key(long userId, Integer year, Integer month) {
+            return userId + ":" + year + ":" + month;
         }
     }
 }
