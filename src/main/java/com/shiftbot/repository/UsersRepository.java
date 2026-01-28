@@ -74,7 +74,9 @@ public class UsersRepository {
                 long rowUserId = Long.parseLong(get(row, 0));
                 if (rowUserId == userId) {
                     int sheetRowNumber = i + 2; // RANGE starts at A2
-                    sheetsClient.updateRange("users!A" + sheetRowNumber + ":H" + sheetRowNumber, List.of(buildRow(user)));
+                    List<Object> updatedRow = buildRow(user);
+                    String endColumn = SheetsClient.columnIndexToLetter(updatedRow.size());
+                    sheetsClient.updateRange("users!A" + sheetRowNumber + ":" + endColumn + sheetRowNumber, List.of(updatedRow));
                     invalidateCache();
                     return;
                 }

@@ -81,6 +81,20 @@ public class SheetsClient {
         }
     }
 
+    public static String columnIndexToLetter(int columnIndex) {
+        if (columnIndex <= 0) {
+            throw new IllegalArgumentException("Column index must be positive: " + columnIndex);
+        }
+        StringBuilder result = new StringBuilder();
+        int current = columnIndex;
+        while (current > 0) {
+            int remainder = (current - 1) % 26;
+            result.insert(0, (char) ('A' + remainder));
+            current = (current - 1) / 26;
+        }
+        return result.toString();
+    }
+
     public void updateRow(String range, int rowIndex, List<Object> row) {
         batchUpdateRows(range, Collections.singletonList(rowIndex), Collections.singletonList(row));
     }
