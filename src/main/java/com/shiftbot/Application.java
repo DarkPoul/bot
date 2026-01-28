@@ -29,18 +29,20 @@ public class Application {
         LocationAssignmentsRepository locationAssignmentsRepository = new LocationAssignmentsRepository(sheetsClient);
         ShiftsRepository shiftsRepository = new ShiftsRepository(sheetsClient);
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
+        AccessRequestsRepository accessRequestsRepository = new AccessRequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
         SchedulesRepository schedulesRepository = new SchedulesRepository(sheetsClient);
         ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
 
         AuditService auditService = new AuditService(auditRepository, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
-        AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
+        AccessRequestService accessRequestService = new AccessRequestService(accessRequestsRepository, usersRepository, config.getZoneId());
+        AuthService authService = new AuthService(usersRepository, auditService, accessRequestService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
         PersonalScheduleService personalScheduleService = new PersonalScheduleService(schedulesRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
-        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, locationsRepository,
+        UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, accessRequestService, locationsRepository,
                 usersRepository, locationAssignmentsRepository, personalScheduleService, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(),
                 new OnboardingFsm(), new com.shiftbot.state.PersonalScheduleFsm(), auditService, config.getZoneId(),
                 Long.parseLong(config.getAdminTelegramId()));

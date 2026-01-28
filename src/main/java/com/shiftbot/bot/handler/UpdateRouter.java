@@ -2,6 +2,7 @@ package com.shiftbot.bot.handler;
 
 import com.shiftbot.bot.BotNotificationPort;
 import com.shiftbot.bot.ui.CalendarKeyboardBuilder;
+import com.shiftbot.model.AccessRequest;
 import com.shiftbot.model.Location;
 import com.shiftbot.model.LocationAssignment;
 import com.shiftbot.model.Request;
@@ -14,6 +15,7 @@ import com.shiftbot.model.enums.UserStatus;
 import com.shiftbot.repository.LocationAssignmentsRepository;
 import com.shiftbot.repository.LocationsRepository;
 import com.shiftbot.repository.UsersRepository;
+import com.shiftbot.service.AccessRequestService;
 import com.shiftbot.service.AuditService;
 import com.shiftbot.service.AuthService;
 import com.shiftbot.service.PersonalScheduleService;
@@ -35,16 +37,20 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class UpdateRouter {
+    private static final DateTimeFormatter ACCESS_REQUEST_DATE_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private final AuthService authService;
     private final ScheduleService scheduleService;
     private final RequestService requestService;
+    private final AccessRequestService accessRequestService;
     private final LocationsRepository locationsRepository;
     private final UsersRepository usersRepository;
     private final LocationAssignmentsRepository locationAssignmentsRepository;
@@ -63,7 +69,7 @@ public class UpdateRouter {
                         RequestService requestService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, null, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, null, null, null, null, calendarKeyboardBuilder,
                 new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
                 new PersonalScheduleFsm(), null, zoneId, null);
     }
@@ -75,7 +81,7 @@ public class UpdateRouter {
                         AuditService auditService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, usersRepository, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, null, usersRepository, null, null, calendarKeyboardBuilder,
                 new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
                 new PersonalScheduleFsm(), auditService, zoneId, null);
     }
@@ -87,7 +93,7 @@ public class UpdateRouter {
                         ConversationStateStore stateStore,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, usersRepository, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, null, usersRepository, null, null, calendarKeyboardBuilder,
                 stateStore, new CoverRequestFsm(), new OnboardingFsm(), new PersonalScheduleFsm(), null, zoneId, null);
     }
 
@@ -98,7 +104,7 @@ public class UpdateRouter {
                         UsersRepository usersRepository,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, locationsRepository, usersRepository, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, locationsRepository, usersRepository, null, null, calendarKeyboardBuilder,
                 new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
                 new PersonalScheduleFsm(), null, zoneId, null);
     }
@@ -112,13 +118,14 @@ public class UpdateRouter {
                         CoverRequestFsm coverRequestFsm,
                         AuditService auditService,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, locationsRepository, null, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, locationsRepository, null, null, null, calendarKeyboardBuilder,
                 stateStore, coverRequestFsm, new OnboardingFsm(), new PersonalScheduleFsm(), auditService, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
                         ScheduleService scheduleService,
                         RequestService requestService,
+                        AccessRequestService accessRequestService,
                         LocationsRepository locationsRepository,
                         UsersRepository usersRepository,
                         LocationAssignmentsRepository locationAssignmentsRepository,
@@ -134,6 +141,7 @@ public class UpdateRouter {
         this.authService = authService;
         this.scheduleService = scheduleService;
         this.requestService = requestService;
+        this.accessRequestService = accessRequestService;
         this.locationsRepository = locationsRepository;
         this.usersRepository = usersRepository;
         this.locationAssignmentsRepository = locationAssignmentsRepository;
@@ -207,6 +215,7 @@ public class UpdateRouter {
             case "👀 Переглянути мій графік" -> sendPersonalSchedule(user, bot);
             case "Потрібна заміна", "🆘 Потрібна заміна" -> startCoverFlow(user, bot);
             case "📥 Мої заявки" -> sendTmRequests(user, bot);
+            case "📨 Заявки" -> sendAccessRequests(user, bot);
             case "🔁 Підміни" -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
             default -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
         }
@@ -245,6 +254,21 @@ public class UpdateRouter {
 
         if (data.startsWith("schedule:")) {
             handlePersonalScheduleCallback(user, data, stateOpt.orElse(personalScheduleFsm.start()), bot);
+            return;
+        }
+
+        if (data.startsWith("requests:list")) {
+            sendAccessRequests(user, bot);
+            return;
+        }
+
+        if (data.startsWith("requests:approve:")) {
+            handleAccessRequestDecision(user, data.substring("requests:approve:".length()), true, bot);
+            return;
+        }
+
+        if (data.startsWith("requests:reject:")) {
+            handleAccessRequestDecision(user, data.substring("requests:reject:".length()), false, bot);
             return;
         }
 
@@ -455,6 +479,104 @@ public class UpdateRouter {
         for (User tm : tms) {
             bot.sendMarkdown(tm.getUserId(), "Підміна очікує підтвердження", null);
         }
+    }
+
+    private void sendAccessRequests(User user, BotNotificationPort bot) {
+        if (user.getRole() != Role.SENIOR) {
+            bot.sendMarkdown(user.getUserId(), "Недостатньо прав", null);
+            return;
+        }
+        if (accessRequestService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс заявок недоступний", null);
+            return;
+        }
+        List<AccessRequest> pending = accessRequestService.listPendingRequests();
+        if (pending.isEmpty()) {
+            bot.sendMarkdown(user.getUserId(), "Немає нових заявок.", null);
+            return;
+        }
+        for (AccessRequest request : pending) {
+            sendAccessRequestDetail(user.getUserId(), request, bot);
+        }
+    }
+
+    private void handleAccessRequestDecision(User user, String requestId, boolean approve, BotNotificationPort bot) {
+        if (user.getRole() != Role.SENIOR) {
+            bot.sendMarkdown(user.getUserId(), "Недостатньо прав", null);
+            return;
+        }
+        if (accessRequestService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс заявок недоступний", null);
+            return;
+        }
+        try {
+            AccessRequest updated = approve
+                    ? accessRequestService.approveRequest(requestId, user.getUserId())
+                    : accessRequestService.rejectRequest(requestId, user.getUserId());
+            String confirmation = approve ? "✅ Заявку схвалено" : "❌ Заявку відхилено";
+            bot.sendMarkdown(user.getUserId(), confirmation, null);
+            String userMessage = approve ? "Доступ надано ✅" : "Заявку відхилено ❌";
+            bot.sendMarkdown(updated.getTelegramUserId(), userMessage, null);
+            List<AccessRequest> pending = accessRequestService.listPendingRequests();
+            if (pending.isEmpty()) {
+                bot.sendMarkdown(user.getUserId(), "Все опрацьовано.", null);
+            } else {
+                sendAccessRequestDetail(user.getUserId(), pending.get(0), bot);
+            }
+        } catch (Exception e) {
+            bot.sendMarkdown(user.getUserId(), "⚠️ Помилка: " + MarkdownEscaper.escape(e.getMessage()), null);
+        }
+    }
+
+    private void sendAccessRequestDetail(Long chatId, AccessRequest request, BotNotificationPort bot) {
+        String text = formatAccessRequest(request);
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(Arrays.asList(
+                InlineKeyboardButton.builder()
+                        .text("✅ Схвалити")
+                        .callbackData("requests:approve:" + request.getId())
+                        .build(),
+                InlineKeyboardButton.builder()
+                        .text("❌ Відхилити")
+                        .callbackData("requests:reject:" + request.getId())
+                        .build()
+        ));
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        bot.sendMarkdown(chatId, MarkdownEscaper.escape(text), markup);
+    }
+
+    private String formatAccessRequest(AccessRequest request) {
+        StringBuilder sb = new StringBuilder("📨 Заявка на доступ\n");
+        if (request.getFullName() != null && !request.getFullName().isBlank()) {
+            sb.append("ПІБ: ").append(request.getFullName()).append("\n");
+        }
+        if (request.getUsername() != null && !request.getUsername().isBlank()) {
+            sb.append("Username: @").append(request.getUsername()).append("\n");
+        }
+        sb.append("Telegram ID: ").append(request.getTelegramUserId()).append("\n");
+        sb.append("Дата: ").append(formatAccessRequestDate(request.getCreatedAt())).append("\n");
+        if (request.getComment() != null && !request.getComment().isBlank()) {
+            sb.append("Коментар: ").append(request.getComment()).append("\n");
+        }
+        sb.append("Статус: ").append(accessRequestStatusLabel(request));
+        return sb.toString();
+    }
+
+    private String accessRequestStatusLabel(AccessRequest request) {
+        return switch (request.getStatus()) {
+            case PENDING -> "Очікує";
+            case APPROVED -> "Схвалено";
+            case REJECTED -> "Відхилено";
+        };
+    }
+
+    private String formatAccessRequestDate(java.time.Instant createdAt) {
+        if (createdAt == null) {
+            return "невідомо";
+        }
+        LocalDateTime localDateTime = LocalDateTime.ofInstant(createdAt, zoneId);
+        return localDateTime.format(ACCESS_REQUEST_DATE_FORMAT);
     }
 
     private void startCoverFlow(User user, BotNotificationPort bot) {
@@ -827,6 +949,9 @@ public class UpdateRouter {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         rows.add(buttonRow("🗓 Створити/Оновити мій графік", "M::schedule_edit"));
         rows.add(buttonRow("👀 Переглянути мій графік", "M::schedule_view"));
+        if (user.getRole() == Role.SENIOR) {
+            rows.add(buttonRow("📨 Заявки", "requests:list"));
+        }
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
         return markup;
