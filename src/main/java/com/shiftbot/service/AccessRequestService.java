@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 public class AccessRequestService {
     private static final Logger log = LoggerFactory.getLogger(AccessRequestService.class);
@@ -40,6 +41,24 @@ public class AccessRequestService {
         return request;
     }
 
+    public Optional<AccessRequest> getPendingByTelegramUserId(long telegramUserId) {
+        return accessRequestsRepository.findAll().stream()
+                .filter(r -> r.getTelegramUserId() == telegramUserId)
+                .filter(r -> r.getStatus() == AccessRequestStatus.PENDING)
+                .findFirst();
+    }
+
+    public AccessRequest createPendingIfAbsent(User user, String comment) {
+        Optional<AccessRequest> existing = getPendingByTelegramUserId(user.getUserId());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        if (user.getStatus() != UserStatus.PENDING) {
+            updateUserStatus(user.getUserId(), UserStatus.PENDING);
+        }
+        return createRequest(user, comment);
+    }
+
     public List<AccessRequest> listPendingRequests() {
         return accessRequestsRepository.findAll().stream()
                 .filter(r -> r.getStatus() == AccessRequestStatus.PENDING)
@@ -58,6 +77,10 @@ public class AccessRequestService {
         return request;
     }
 
+    public AccessRequest approve(String requestId, long seniorUserId) {
+        return approveRequest(requestId, seniorUserId);
+    }
+
     public AccessRequest rejectRequest(String requestId, long seniorUserId) {
         AccessRequest request = load(requestId);
         request.setStatus(AccessRequestStatus.REJECTED);
@@ -67,6 +90,10 @@ public class AccessRequestService {
         updateUserStatus(request.getTelegramUserId(), UserStatus.REJECTED);
         log.info("Access request {} rejected by senior {}", requestId, seniorUserId);
         return request;
+    }
+
+    public AccessRequest reject(String requestId, long seniorUserId) {
+        return rejectRequest(requestId, seniorUserId);
     }
 
     private void updateUserStatus(long userId, UserStatus status) {
