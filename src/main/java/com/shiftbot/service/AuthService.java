@@ -13,15 +13,21 @@ import java.util.Optional;
 public class AuthService {
     private final UsersRepository usersRepository;
     private final AuditService auditService;
+    private final AccessRequestService accessRequestService;
     private final ZoneId zoneId;
 
     public AuthService(UsersRepository usersRepository, ZoneId zoneId) {
-        this(usersRepository, null, zoneId);
+        this(usersRepository, null, null, zoneId);
     }
 
     public AuthService(UsersRepository usersRepository, AuditService auditService, ZoneId zoneId) {
+        this(usersRepository, auditService, null, zoneId);
+    }
+
+    public AuthService(UsersRepository usersRepository, AuditService auditService, AccessRequestService accessRequestService, ZoneId zoneId) {
         this.usersRepository = usersRepository;
         this.auditService = auditService;
+        this.accessRequestService = accessRequestService;
         this.zoneId = zoneId;
     }
 
@@ -57,6 +63,9 @@ public class AuthService {
         user.setStatus(UserStatus.PENDING);
         user.setCreatedAt(TimeUtils.nowInstant(zoneId));
         usersRepository.save(user);
+        if (accessRequestService != null) {
+            accessRequestService.createRequest(user, null);
+        }
         if (auditService != null) {
             auditService.logEvent(userId, "user_onboarded", "user", String.valueOf(userId), Map.of("status", user.getStatus().name()));
         }
