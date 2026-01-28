@@ -2,15 +2,21 @@ package com.shiftbot.repository;
 
 import com.shiftbot.model.AccessRequest;
 import com.shiftbot.model.enums.AccessRequestStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 public class AccessRequestsRepository {
+    private static final Logger log = LoggerFactory.getLogger(AccessRequestsRepository.class);
     private static final String RANGE = "access_requests!A2:I";
+    private static final String HEADER_RANGE = "access_requests!A1:I1";
     private final SheetsClient sheetsClient;
 
     public AccessRequestsRepository(SheetsClient sheetsClient) {
@@ -19,10 +25,11 @@ public class AccessRequestsRepository {
 
     public synchronized List<AccessRequest> findAll() {
         List<AccessRequest> result = new ArrayList<>();
+        Map<String, Integer> headerIndexes = readHeaderIndexes();
         List<List<Object>> rows = sheetsClient.readRange(RANGE);
         if (rows != null) {
             for (List<Object> row : rows) {
-                AccessRequest request = mapRow(row);
+                AccessRequest request = mapRow(row, headerIndexes);
                 if (request != null) {
                     result.add(request);
                 }
@@ -62,20 +69,41 @@ public class AccessRequestsRepository {
         sheetsClient.updateRange(RANGE, rows);
     }
 
-    private AccessRequest mapRow(List<Object> row) {
+    private AccessRequest mapRow(List<Object> row, Map<String, Integer> headerIndexes) {
         if (row.isEmpty() || row.get(0) == null || row.get(0).toString().isBlank()) {
             return null;
         }
-        String id = get(row, 0);
-        long telegramUserId = Long.parseLong(get(row, 1));
-        String username = get(row, 2);
-        String fullName = get(row, 3);
-        String comment = get(row, 4);
-        AccessRequestStatus status = AccessRequestStatus.valueOf(get(row, 5));
-        Instant createdAt = get(row, 6).isEmpty() ? null : Instant.parse(get(row, 6));
-        Long processedBy = get(row, 7).isEmpty() ? null : Long.parseLong(get(row, 7));
-        Instant processedAt = get(row, 8).isEmpty() ? null : Instant.parse(get(row, 8));
-        return new AccessRequest(id, telegramUserId, username, fullName, comment, status, createdAt, processedBy, processedAt);
+        int idIndex = resolveIndex(headerIndexes, "id", 0);
+        int telegramUserIdIndex = resolveIndex(headerIndexes, "telegramuserid", 1);
+        int usernameIndex = resolveIndex(headerIndexes, "username", 2);
+        int fullNameIndex = resolveIndex(headerIndexes, "fullname", 3);
+        int commentIndex = resolveIndex(headerIndexes, "comment", 4);
+        int statusIndex = resolveIndex(headerIndexes, "status", 5);
+        int createdAtIndex = resolveIndex(headerIndexes, "createdat", 6);
+        int processedByIndex = resolveIndex(headerIndexes, "processedby", 7);
+        int processedAtIndex = resolveIndex(headerIndexes, "processedat", 8);
+        try {
+            String id = get(row, idIndex);
+            long telegramUserId = Long.parseLong(get(row, telegramUserIdIndex));
+            String username = get(row, usernameIndex);
+            String fullName = get(row, fullNameIndex);
+            String comment = get(row, commentIndex);
+            String statusValue = get(row, statusIndex);
+            AccessRequestStatus status = AccessRequestStatus.valueOf(statusValue);
+            String createdAtValue = get(row, createdAtIndex);
+            Instant createdAt = createdAtValue.isEmpty() ? null : Instant.parse(createdAtValue);
+            String processedByValue = get(row, processedByIndex);
+            Long processedBy = processedByValue.isEmpty() ? null : Long.parseLong(processedByValue);
+            String processedAtValue = get(row, processedAtIndex);
+            Instant processedAt = processedAtValue.isEmpty() ? null : Instant.parse(processedAtValue);
+            return new AccessRequest(id, telegramUserId, username, fullName, comment, status, createdAt, processedBy, processedAt);
+        } catch (IllegalArgumentException e) {
+            log.warn("Skip access request row with invalid status: {}", row, e);
+            return null;
+        } catch (Exception e) {
+            log.warn("Skip invalid access request row: {}", row, e);
+            return null;
+        }
     }
 
     private List<Object> toRow(AccessRequest request) {
@@ -97,5 +125,36 @@ public class AccessRequestsRepository {
             return row.get(idx).toString();
         }
         return "";
+    }
+
+    private Map<String, Integer> readHeaderIndexes() {
+        List<List<Object>> rows = sheetsClient.readRange(HEADER_RANGE);
+        if (rows == null || rows.isEmpty()) {
+            return Map.of();
+        }
+        List<Object> headerRow = rows.get(0);
+        Map<String, Integer> indexByHeader = new HashMap<>();
+        for (int i = 0; i < headerRow.size(); i++) {
+            String header = normalizeHeader(headerRow.get(i));
+            if (!header.isEmpty()) {
+                indexByHeader.put(header, i);
+            }
+        }
+        return indexByHeader;
+    }
+
+    private int resolveIndex(Map<String, Integer> headerIndexes, String normalizedHeader, int defaultIndex) {
+        return headerIndexes.getOrDefault(normalizedHeader, defaultIndex);
+    }
+
+    private String normalizeHeader(Object headerValue) {
+        if (headerValue == null) {
+            return "";
+        }
+        return headerValue.toString()
+                .trim()
+                .toLowerCase()
+                .replace(" ", "")
+                .replace("_", "");
     }
 }
