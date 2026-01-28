@@ -25,12 +25,12 @@ public class AuthService {
         this.zoneId = zoneId;
     }
 
-    public OnboardResult onboard(long userId, String username, String fullName) {
+    public OnboardResult onboard(long userId, String username, String fullName, String locationId) {
         Optional<User> existing = usersRepository.findById(userId);
         if (existing.isPresent()) {
             return evaluateExisting(existing.get());
         }
-        return register(userId, username, fullName);
+        return register(userId, username, fullName, locationId);
     }
 
     public Optional<User> findExisting(long userId) {
@@ -38,20 +38,21 @@ public class AuthService {
     }
 
     public OnboardResult evaluateExisting(User user) {
-        if (user.getStatus() == UserStatus.BLOCKED) {
-            return OnboardResult.blocked(user, "Ваш доступ заблоковано. Зверніться до ТМ/Сеньйора.");
+        if (user.getStatus() == UserStatus.REJECTED) {
+            return OnboardResult.blocked(user, "Акаунт не підтверджено");
         }
         if (user.getStatus() == UserStatus.PENDING) {
-            return OnboardResult.pending(user, "Ваша анкета очікує підтвердження від ТМ/Сеньйора.");
+            return OnboardResult.pending(user, "Акаунт не підтверджено");
         }
         return OnboardResult.allowed(user, null);
     }
 
-    public OnboardResult register(long userId, String username, String fullName) {
+    public OnboardResult register(long userId, String username, String fullName, String locationId) {
         User user = new User();
         user.setUserId(userId);
         user.setUsername(username);
         user.setFullName(fullName);
+        user.setLocationId(locationId);
         user.setRole(Role.SELLER);
         user.setStatus(UserStatus.PENDING);
         user.setCreatedAt(TimeUtils.nowInstant(zoneId));
@@ -59,7 +60,7 @@ public class AuthService {
         if (auditService != null) {
             auditService.logEvent(userId, "user_onboarded", "user", String.valueOf(userId), Map.of("status", user.getStatus().name()));
         }
-        return OnboardResult.pending(user, "👋 Вітаємо, " + user.getFullName() + "! Ваша анкета створена та очікує підтвердження від ТМ/Сеньйора.");
+        return OnboardResult.pending(user, "Заявка відправлена, очікуйте підтвердження");
     }
 
     public record OnboardResult(User user, boolean allowed, String message) {

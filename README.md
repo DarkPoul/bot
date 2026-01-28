@@ -3,10 +3,10 @@
 Бот для керування графіками продавців, підмінами та підтвердженнями виходів. Побудовано на Java 17, Maven, Telegram Long Polling та Google Sheets як джерело даних.
 
 ## Можливості (MVP)
-- Онбординг через /start із реєстрацією користувача (роль SELLER, статус PENDING).
-- Перегляд особистого графіка через інлайн‑календар з відображенням статусів змін.
-- Створення запиту на заміну (COVER) на вибрану дату.
-- Базові меню за ролями, підготовка до SWAP/COVER/EDIT потоків.
+- Онбординг через /start із реєстрацією користувача (статус PENDING).
+- Підтвердження/відхилення заявки адміністратором (ADMIN_TELEGRAM_ID).
+- Створення/оновлення особистого графіка у довільному текстовому форматі.
+- Перегляд особистого графіка.
 - Аудит подій у окремий лист та повідомлення у групу AUDIT_GROUP_ID.
 
 ## Архітектура
@@ -18,13 +18,14 @@
 
 ## Налаштування Google Sheets
 1. Створіть Google Spreadsheet з листами та колонками:
-   - `users`: `userId, username, fullName, phone, role, status, createdAt, createdBy`
+   - `users`: `userId, username, fullName, locationId, phone, role, status, createdAt, createdBy`
    - `locations`: `locationId, name, address, active`
    - `location_assignments`: `locationId, userId, isPrimary, activeFrom, activeTo`
    - `tm_locations`: `tmUserId, locationId`
    - `shifts`: `shiftId, date, startTime, endTime, locationId, userId, status, source, linkedRequestId, updatedAt`
    - `requests`: `requestId, type, initiatorUserId, fromUserId, toUserId, date, startTime, endTime, locationId, status, comment, createdAt, updatedAt`
    - `audit_log`: `eventId, timestamp, actorUserId, action, entityType, entityId, details`
+   - `personal_schedules`: `scheduleId, userId, scheduleText, periodStart, periodEnd, updatedAt`
 2. Створіть Service Account у Google Cloud, видайте йому доступ "Editor" на Spreadsheet.
 3. Завантажте JSON ключ сервісного акаунта як `secrets/sa.json` (не комітьте в git).
 
@@ -34,26 +35,32 @@
 - `SPREADSHEET_ID` – ID таблиці Google Sheets.
 - `GOOGLE_APPLICATION_CREDENTIALS` – шлях до service account json (в контейнері `/secrets/sa.json`).
 - `AUDIT_GROUP_ID` – ID Telegram групи для аудитів.
+- `ADMIN_TELEGRAM_ID` – Telegram ID адміністратора, який підтверджує заявки.
 - `TZ` – таймзона, за замовчуванням `Europe/Kyiv`.
 
 ## Запуск локально
 ```bash
 mvn clean package
-BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... GOOGLE_APPLICATION_CREDENTIALS=secrets/sa.json AUDIT_GROUP_ID=-100123 java -jar target/shift-scheduler-bot-1.0.0-shaded.jar
+BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... GOOGLE_APPLICATION_CREDENTIALS=secrets/sa.json AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 java -jar target/shift-scheduler-bot-1.0.0-shaded.jar
 ```
 
 ## Запуск у Docker
 ```bash
 docker-compose build
-BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... AUDIT_GROUP_ID=-100123 docker-compose up -d
+BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 docker-compose up -d
 ```
 Service account ключ очікується у `./secrets/sa.json`.
 
 ## Команди та UI
 - `/start` – онбординг та головне меню.
-- **📅 Мій графік** – місячний календар (Europe/Kyiv), позначки статусів: 🟥 approved, 🟩 draft/pending, ⬜ вихідний.
-- **🆘 Потрібна заміна** – швидке створення COVER запиту (дефолт 10:00–22:00).
-- TM/SENIOR отримують додаткові пункти для заявок та локацій (каркас).
+- **🗓 Створити/Оновити мій графік** – введення графіка одним повідомленням.
+- **👀 Переглянути мій графік** – показ збереженого графіка.
+
+## Приклад сценарію (MVP)
+1. Новий користувач запускає `/start`, вводить ПІБ та обирає локацію.
+2. Бот відповідає “Заявка відправлена, очікуйте підтвердження”.
+3. Адмін отримує заявку з кнопками ✅/❌ і підтверджує.
+4. Користувач отримує “Вас підтверджено, доступ відкрито” і може зберегти/переглянути графік.
 
 ## Тести
 - Перевірка перетину змін (`OverlapCheckerTest`).

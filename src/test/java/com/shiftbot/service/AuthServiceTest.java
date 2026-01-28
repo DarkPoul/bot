@@ -28,21 +28,21 @@ class AuthServiceTest {
         when(usersRepository.findById(1L)).thenReturn(Optional.of(user));
         AuthService service = new AuthService(usersRepository, ZoneId.of("UTC"));
 
-        AuthService.OnboardResult result = service.onboard(1L, "user1", "User One");
+        AuthService.OnboardResult result = service.onboard(1L, "user1", "User One", "loc-1");
 
         assertFalse(result.allowed());
         assertEquals(user, result.user());
-        assertTrue(result.message().contains("очікує підтвердження"));
+        assertEquals("Акаунт не підтверджено", result.message());
         verify(usersRepository, never()).save(any());
     }
 
     @Test
     void returnsAllowedForActiveUser() {
-        User user = new User(2L, "user2", "User Two", "", Role.SELLER, UserStatus.ACTIVE, null, null);
+        User user = new User(2L, "user2", "User Two", "", Role.SELLER, UserStatus.APPROVED, null, null);
         when(usersRepository.findById(2L)).thenReturn(Optional.of(user));
         AuthService service = new AuthService(usersRepository, ZoneId.of("UTC"));
 
-        AuthService.OnboardResult result = service.onboard(2L, "user2", "User Two");
+        AuthService.OnboardResult result = service.onboard(2L, "user2", "User Two", "loc-1");
 
         assertTrue(result.allowed());
         assertNull(result.message());
@@ -55,7 +55,7 @@ class AuthServiceTest {
         when(usersRepository.findById(3L)).thenReturn(Optional.empty());
         AuthService service = new AuthService(usersRepository, ZoneId.of("UTC"));
 
-        AuthService.OnboardResult result = service.onboard(3L, "user3", "User Three");
+        AuthService.OnboardResult result = service.onboard(3L, "user3", "User Three", "loc-1");
 
         assertFalse(result.allowed());
         assertEquals(UserStatus.PENDING, result.user().getStatus());
@@ -64,5 +64,6 @@ class AuthServiceTest {
         assertEquals(3L, captor.getValue().getUserId());
         assertEquals("user3", captor.getValue().getUsername());
         assertEquals("User Three", captor.getValue().getFullName());
+        assertEquals("loc-1", captor.getValue().getLocationId());
     }
 }

@@ -43,7 +43,7 @@ class UpdateRouterSwapHandlerTest {
         UpdateRouter router = new UpdateRouter(authService, scheduleService, requestService, usersRepository, stateStore, new CalendarKeyboardBuilder(), ZoneId.of("Europe/Kyiv"));
         BotNotificationPort bot = Mockito.mock(BotNotificationPort.class);
 
-        User peer = new User(20L, "peer", "Peer User", "", Role.SELLER, UserStatus.ACTIVE, null, null);
+        User peer = new User(20L, "peer", "Peer User", "", Role.SELLER, UserStatus.APPROVED, null, null);
         when(authService.findExisting(anyLong())).thenReturn(Optional.of(peer));
         when(authService.evaluateExisting(peer)).thenReturn(new AuthService.OnboardResult(peer, true, null));
 
@@ -64,9 +64,9 @@ class UpdateRouterSwapHandlerTest {
         when(requestService.findById("req1")).thenReturn(Optional.of(request));
         when(requestService.acceptByPeer("req1")).thenReturn(accepted);
 
-        User tmUser = new User(30L, "tm", "TM User", "", Role.TM, UserStatus.ACTIVE, null, null);
+        User tmUser = new User(30L, "tm", "TM User", "", Role.TM, UserStatus.APPROVED, null, null);
         when(usersRepository.findAll()).thenReturn(List.of(tmUser, peer));
-        when(usersRepository.findById(10L)).thenReturn(Optional.of(new User(10L, "init", "Initiator", "", Role.SELLER, UserStatus.ACTIVE, null, null)));
+        when(usersRepository.findById(10L)).thenReturn(Optional.of(new User(10L, "init", "Initiator", "", Role.SELLER, UserStatus.APPROVED, null, null)));
         when(usersRepository.findById(20L)).thenReturn(Optional.of(peer));
 
         Update update = buildCallbackUpdate(20L, "swapPeerAccept:req1");
@@ -86,7 +86,7 @@ class UpdateRouterSwapHandlerTest {
         UpdateRouter router = new UpdateRouter(authService, scheduleService, requestService, usersRepository, stateStore, new CalendarKeyboardBuilder(), ZoneId.of("Europe/Kyiv"));
         BotNotificationPort bot = Mockito.mock(BotNotificationPort.class);
 
-        User peer = new User(20L, "peer", "Peer User", "", Role.SELLER, UserStatus.ACTIVE, null, null);
+        User peer = new User(20L, "peer", "Peer User", "", Role.SELLER, UserStatus.APPROVED, null, null);
         when(authService.findExisting(anyLong())).thenReturn(Optional.of(peer));
         when(authService.evaluateExisting(peer)).thenReturn(new AuthService.OnboardResult(peer, true, null));
 
@@ -107,7 +107,7 @@ class UpdateRouterSwapHandlerTest {
         when(requestService.findById("req1")).thenReturn(Optional.of(request));
         when(requestService.declineByPeer("req1")).thenReturn(declined);
 
-        User initiator = new User(10L, "init", "Initiator", "", Role.SELLER, UserStatus.ACTIVE, null, null);
+        User initiator = new User(10L, "init", "Initiator", "", Role.SELLER, UserStatus.APPROVED, null, null);
         when(usersRepository.findById(10L)).thenReturn(Optional.of(initiator));
         when(usersRepository.findById(20L)).thenReturn(Optional.of(peer));
 

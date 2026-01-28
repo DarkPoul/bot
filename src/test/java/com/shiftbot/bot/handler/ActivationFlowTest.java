@@ -25,30 +25,32 @@ class ActivationFlowTest extends FlowTestSupport {
 
         router.handle(callbackUpdate(101L, "alice", "Alice", "A", "onboard:loc:loc-1"), bot);
         SentMessage done = bot.lastMessage();
-        assertTrue(done.text().contains("анкета"), "should confirm registration");
+        assertEquals("Заявка відправлена, очікуйте підтвердження", done.text());
         assertEquals(1, usersRepository.findAll().size());
         User saved = usersRepository.findAll().get(0);
         assertEquals(Role.SELLER, saved.getRole());
         assertEquals(UserStatus.PENDING, saved.getStatus());
         assertEquals("Іван Петренко", saved.getFullName());
+        assertEquals("loc-1", saved.getLocationId());
     }
 
     @Test
-    void shouldShowTmMenuWithRequestsItem() {
-        User tm = new User();
-        tm.setUserId(202L);
-        tm.setUsername("tm");
-        tm.setFullName("Team Manager");
-        tm.setRole(Role.TM);
-        tm.setStatus(UserStatus.ACTIVE);
-        usersRepository.save(tm);
+    void shouldShowApprovedMenuItems() {
+        User seller = new User();
+        seller.setUserId(202L);
+        seller.setUsername("seller");
+        seller.setFullName("Seller");
+        seller.setRole(Role.SELLER);
+        seller.setStatus(UserStatus.APPROVED);
+        usersRepository.save(seller);
 
-        router.handle(messageUpdate(202L, "tm", "Team", "Manager", "/start"), bot);
+        router.handle(messageUpdate(202L, "seller", "Seller", "User", "/start"), bot);
 
         SentMessage message = bot.lastMessage();
         InlineKeyboardMarkup markup = message.markup();
         assertNotNull(markup);
-        assertTrue(hasButtonWithText(markup, "📥 Мої заявки"), "TM should see requests menu item");
+        assertTrue(hasButtonWithText(markup, "🗓 Створити/Оновити мій графік"), "Approved should see schedule create");
+        assertTrue(hasButtonWithText(markup, "👀 Переглянути мій графік"), "Approved should see schedule view");
     }
 
     @Test
@@ -58,7 +60,7 @@ class ActivationFlowTest extends FlowTestSupport {
         seller.setUsername("bob");
         seller.setFullName("Bob B");
         seller.setRole(Role.SELLER);
-        seller.setStatus(UserStatus.ACTIVE);
+        seller.setStatus(UserStatus.APPROVED);
         usersRepository.save(seller);
         router.handle(messageUpdate(303L, "bob", "Bob", "B", "random"), bot);
 
