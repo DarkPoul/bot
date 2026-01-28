@@ -9,6 +9,7 @@ public class EnvironmentConfig {
     private final String spreadsheetId;
     private final String credentialsPath;
     private final String auditGroupId;
+    private final String adminTelegramId;
     private final ZoneId zoneId;
 
     public EnvironmentConfig() {
@@ -17,6 +18,7 @@ public class EnvironmentConfig {
         this.spreadsheetId = requiredEnv("SPREADSHEET_ID");
         this.credentialsPath = requiredEnv("GOOGLE_APPLICATION_CREDENTIALS");
         this.auditGroupId = requiredEnv("AUDIT_GROUP_ID");
+        this.adminTelegramId = requiredEnv("ADMIN_TELEGRAM_ID");
         String tz = System.getenv().getOrDefault("TZ", "Europe/Kyiv");
         this.zoneId = ZoneId.of(tz);
     }
@@ -47,6 +49,10 @@ public class EnvironmentConfig {
 
     public String getAuditGroupId() {
         return auditGroupId;
+    }
+
+    public String getAdminTelegramId() {
+        return adminTelegramId;
     }
 
     public ZoneId getZoneId() {

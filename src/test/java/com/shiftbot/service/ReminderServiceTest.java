@@ -39,7 +39,7 @@ class ReminderServiceTest {
         BotNotificationPort bot = mock(BotNotificationPort.class);
         Clock clock = Clock.fixed(ZonedDateTime.of(2024, 3, 10, 10, 0, 0, 0, zoneId).toInstant(), zoneId);
 
-        User seller = new User(100L, "seller", "Seller One", "", Role.SELLER, UserStatus.ACTIVE, null, null);
+        User seller = new User(100L, "seller", "Seller One", "", Role.SELLER, UserStatus.APPROVED, null, null);
         when(usersRepository.findAll()).thenReturn(List.of(seller));
 
         Shift shift = new Shift("s1", LocalDate.of(2024, 3, 11), LocalTime.of(10, 0), LocalTime.of(18, 0), "loc1", 100L,
@@ -61,7 +61,7 @@ class ReminderServiceTest {
         BotNotificationPort bot = mock(BotNotificationPort.class);
         Clock clock = Clock.fixed(ZonedDateTime.of(2024, 3, 10, 8, 0, 0, 0, zoneId).toInstant(), zoneId);
 
-        User tm = new User(200L, "tm", "Tm User", "", Role.TM, UserStatus.ACTIVE, null, null);
+        User tm = new User(200L, "tm", "Tm User", "", Role.TM, UserStatus.APPROVED, null, null);
         when(usersRepository.findAll()).thenReturn(List.of(tm));
 
         Request request = new Request();

@@ -16,7 +16,7 @@ import java.util.Optional;
 
 public class UsersRepository {
     private static final Logger log = LoggerFactory.getLogger(UsersRepository.class);
-    private static final String RANGE = "users!A2:H";
+    private static final String RANGE = "users!A2:I";
 
     private final SheetsClient sheetsClient;
     private final Duration cacheTtl;
@@ -95,6 +95,7 @@ public class UsersRepository {
         row.add(String.valueOf(user.getUserId()));
         row.add(user.getUsername());
         row.add(user.getFullName());
+        row.add(user.getLocationId());
         row.add(user.getPhone());
         row.add(user.getRole().name());
         row.add(user.getStatus().name());
@@ -107,17 +108,18 @@ public class UsersRepository {
         long userId = Long.parseLong(get(row, 0));
         String username = get(row, 1);
         String fullName = get(row, 2);
-        boolean phoneMissing = isRoleValue(get(row, 3)) && !isRoleValue(get(row, 4));
-        String phone = phoneMissing ? "" : get(row, 3);
-        String roleValue = phoneMissing ? get(row, 3) : get(row, 4);
-        String statusValue = phoneMissing ? get(row, 4) : get(row, 5);
-        String createdAtValue = phoneMissing ? get(row, 5) : get(row, 6);
-        String createdByValue = phoneMissing ? get(row, 6) : get(row, 7);
+        int roleIndex = findRoleIndex(row);
+        String locationId = roleIndex >= 4 ? get(row, 3) : "";
+        String phone = roleIndex >= 5 ? get(row, 4) : "";
+        String roleValue = get(row, roleIndex);
+        String statusValue = get(row, roleIndex + 1);
+        String createdAtValue = get(row, roleIndex + 2);
+        String createdByValue = get(row, roleIndex + 3);
         Role role = Role.valueOf(roleValue);
         UserStatus status = UserStatus.valueOf(statusValue);
         Instant createdAt = createdAtValue.isEmpty() ? null : Instant.parse(createdAtValue);
         Long createdBy = createdByValue.isEmpty() ? null : Long.parseLong(createdByValue);
-        return new User(userId, username, fullName, phone, role, status, createdAt, createdBy);
+        return new User(userId, username, fullName, locationId, phone, role, status, createdAt, createdBy);
     }
 
     private String get(List<Object> row, int idx) {
@@ -137,5 +139,14 @@ public class UsersRepository {
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    private int findRoleIndex(List<Object> row) {
+        for (int i = 0; i < row.size(); i++) {
+            if (isRoleValue(get(row, i))) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("Role column not found in row: " + row);
     }
 }

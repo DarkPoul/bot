@@ -9,6 +9,7 @@ import com.shiftbot.service.*;
 import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
 import com.shiftbot.state.OnboardingFsm;
+import com.shiftbot.state.PersonalScheduleFsm;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import org.slf4j.Logger;
@@ -29,17 +30,20 @@ public class Application {
         ShiftsRepository shiftsRepository = new ShiftsRepository(sheetsClient);
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
+        SchedulesRepository schedulesRepository = new SchedulesRepository(sheetsClient);
         ConversationStateStore stateStore = new ConversationStateStore(Duration.ofMinutes(15));
 
         AuditService auditService = new AuditService(auditRepository, Long.parseLong(config.getAuditGroupId()), config.getZoneId());
         AuthService authService = new AuthService(usersRepository, auditService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
+        PersonalScheduleService personalScheduleService = new PersonalScheduleService(schedulesRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, locationsRepository,
-                usersRepository, locationAssignmentsRepository, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(),
-                new OnboardingFsm(), auditService, config.getZoneId());
+                usersRepository, locationAssignmentsRepository, personalScheduleService, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(),
+                new OnboardingFsm(), new com.shiftbot.state.PersonalScheduleFsm(), auditService, config.getZoneId(),
+                Long.parseLong(config.getAdminTelegramId()));
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
         auditService.setBot(bot);
 

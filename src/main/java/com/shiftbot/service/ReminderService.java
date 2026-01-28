@@ -88,7 +88,7 @@ public class ReminderService {
 
     public void sendTomorrowReminders() {
         List<Long> sellers = usersRepository.findAll().stream()
-                .filter(u -> u.getRole() == Role.SELLER && u.getStatus() == UserStatus.ACTIVE)
+                .filter(u -> u.getRole() == Role.SELLER && u.getStatus() == UserStatus.APPROVED)
                 .map(User::getUserId)
                 .toList();
         sendTomorrowReminders(sellers);
@@ -109,7 +109,7 @@ public class ReminderService {
             return;
         }
         List<Long> tmIds = usersRepository.findAll().stream()
-                .filter(u -> u.getRole() == Role.TM && u.getStatus() == UserStatus.ACTIVE)
+                .filter(u -> u.getRole() == Role.TM && u.getStatus() == UserStatus.APPROVED)
                 .map(User::getUserId)
                 .toList();
         if (tmIds.isEmpty()) {

@@ -10,6 +10,7 @@ public class User {
     private long userId;
     private String username;
     private String fullName;
+    private String locationId;
     private String phone;
     private Role role;
     private UserStatus status;
@@ -23,6 +24,19 @@ public class User {
         this.userId = userId;
         this.username = username;
         this.fullName = fullName;
+        this.locationId = "";
+        this.phone = phone;
+        this.role = role;
+        this.status = status;
+        this.createdAt = createdAt;
+        this.createdBy = createdBy;
+    }
+
+    public User(long userId, String username, String fullName, String locationId, String phone, Role role, UserStatus status, Instant createdAt, Long createdBy) {
+        this.userId = userId;
+        this.username = username;
+        this.fullName = fullName;
+        this.locationId = locationId;
         this.phone = phone;
         this.role = role;
         this.status = status;
@@ -52,6 +66,14 @@ public class User {
 
     public void setFullName(String fullName) {
         this.fullName = fullName;
+    }
+
+    public String getLocationId() {
+        return locationId;
+    }
+
+    public void setLocationId(String locationId) {
+        this.locationId = locationId;
     }
 
     public String getPhone() {

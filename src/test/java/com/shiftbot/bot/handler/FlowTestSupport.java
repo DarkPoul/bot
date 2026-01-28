@@ -8,9 +8,11 @@ import com.shiftbot.model.Shift;
 import com.shiftbot.model.User;
 import com.shiftbot.repository.LocationsRepository;
 import com.shiftbot.repository.RequestsRepository;
+import com.shiftbot.repository.SchedulesRepository;
 import com.shiftbot.repository.ShiftsRepository;
 import com.shiftbot.repository.UsersRepository;
 import com.shiftbot.service.AuthService;
+import com.shiftbot.service.PersonalScheduleService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,9 +39,11 @@ abstract class FlowTestSupport {
     protected InMemoryRequestsRepository requestsRepository;
     protected InMemoryShiftsRepository shiftsRepository;
     protected InMemoryLocationsRepository locationsRepository;
+    protected InMemorySchedulesRepository schedulesRepository;
     protected AuthService authService;
     protected ScheduleService scheduleService;
     protected RequestService requestService;
+    protected PersonalScheduleService personalScheduleService;
     protected CalendarKeyboardBuilder calendarKeyboardBuilder;
     protected UpdateRouter router;
     protected FakeBot bot;
@@ -50,11 +54,16 @@ abstract class FlowTestSupport {
         requestsRepository = new InMemoryRequestsRepository();
         shiftsRepository = new InMemoryShiftsRepository();
         locationsRepository = new InMemoryLocationsRepository();
+        schedulesRepository = new InMemorySchedulesRepository();
         authService = new AuthService(usersRepository, zoneId);
         scheduleService = new ScheduleService(shiftsRepository, locationsRepository, zoneId);
         requestService = new RequestService(requestsRepository, zoneId);
+        personalScheduleService = new PersonalScheduleService(schedulesRepository, zoneId);
         calendarKeyboardBuilder = new CalendarKeyboardBuilder();
-        router = new UpdateRouter(authService, scheduleService, requestService, locationsRepository, usersRepository, calendarKeyboardBuilder, zoneId);
+        router = new UpdateRouter(authService, scheduleService, requestService, locationsRepository, usersRepository, null,
+                personalScheduleService, calendarKeyboardBuilder, new com.shiftbot.state.ConversationStateStore(Duration.ofMinutes(10)),
+                new com.shiftbot.state.CoverRequestFsm(), new com.shiftbot.state.OnboardingFsm(),
+                new com.shiftbot.state.PersonalScheduleFsm(), null, zoneId, null);
         bot = new FakeBot();
     }
 
@@ -232,6 +241,29 @@ abstract class FlowTestSupport {
 
         public void save(Location location) {
             storage.put(location.getLocationId(), location);
+        }
+    }
+
+    protected static class InMemorySchedulesRepository extends SchedulesRepository {
+        private final Map<Long, com.shiftbot.model.ScheduleEntry> storage = new LinkedHashMap<>();
+
+        InMemorySchedulesRepository() {
+            super(null);
+        }
+
+        @Override
+        public Optional<com.shiftbot.model.ScheduleEntry> findByUserId(long userId) {
+            return Optional.ofNullable(storage.get(userId));
+        }
+
+        @Override
+        public void save(com.shiftbot.model.ScheduleEntry entry) {
+            storage.put(entry.getUserId(), entry);
+        }
+
+        @Override
+        public void upsert(com.shiftbot.model.ScheduleEntry entry) {
+            storage.put(entry.getUserId(), entry);
         }
     }
 }

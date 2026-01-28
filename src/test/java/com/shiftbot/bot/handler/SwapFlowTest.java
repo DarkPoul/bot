@@ -13,7 +13,7 @@ class SwapFlowTest extends FlowTestSupport {
         user.setUsername("swap");
         user.setFullName("Swap User");
         user.setRole(com.shiftbot.model.enums.Role.SELLER);
-        user.setStatus(com.shiftbot.model.enums.UserStatus.ACTIVE);
+        user.setStatus(com.shiftbot.model.enums.UserStatus.APPROVED);
         usersRepository.save(user);
         router.handle(callbackUpdate(333L, "swap", "Swap", "User", "M::swap"), bot);
 
@@ -29,7 +29,7 @@ class SwapFlowTest extends FlowTestSupport {
         user.setUsername("swap2");
         user.setFullName("Swap User");
         user.setRole(com.shiftbot.model.enums.Role.SELLER);
-        user.setStatus(com.shiftbot.model.enums.UserStatus.ACTIVE);
+        user.setStatus(com.shiftbot.model.enums.UserStatus.APPROVED);
         usersRepository.save(user);
         router.handle(messageUpdate(444L, "swap2", "Swap", "User", "🔁 Підміни"), bot);
 

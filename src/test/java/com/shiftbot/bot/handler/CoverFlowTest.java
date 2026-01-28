@@ -19,7 +19,7 @@ class CoverFlowTest extends FlowTestSupport {
         user.setUsername("cover");
         user.setFullName("Cover User");
         user.setRole(com.shiftbot.model.enums.Role.SELLER);
-        user.setStatus(com.shiftbot.model.enums.UserStatus.ACTIVE);
+        user.setStatus(com.shiftbot.model.enums.UserStatus.APPROVED);
         usersRepository.save(user);
         router.handle(messageUpdate(111L, "cover", "Cover", "User", "🆘 Потрібна заміна"), bot);
 
@@ -39,7 +39,7 @@ class CoverFlowTest extends FlowTestSupport {
         user.setUsername("cover2");
         user.setFullName("Cover User");
         user.setRole(com.shiftbot.model.enums.Role.SELLER);
-        user.setStatus(com.shiftbot.model.enums.UserStatus.ACTIVE);
+        user.setStatus(com.shiftbot.model.enums.UserStatus.APPROVED);
         usersRepository.save(user);
 
         router.handle(callbackUpdate(222L, "cover2", "Cover", "User", "cover:" + targetDate), bot);

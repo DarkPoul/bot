@@ -8,6 +8,7 @@ services:
       SPREADSHEET_ID: ${SPREADSHEET_ID}
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa.json
       AUDIT_GROUP_ID: ${AUDIT_GROUP_ID}
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID}
       TZ: ${TZ:-Europe/Kyiv}
     volumes:
       - ./secrets/sa.json:/secrets/sa.json:ro

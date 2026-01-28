@@ -16,12 +16,14 @@ import com.shiftbot.repository.LocationsRepository;
 import com.shiftbot.repository.UsersRepository;
 import com.shiftbot.service.AuditService;
 import com.shiftbot.service.AuthService;
+import com.shiftbot.service.PersonalScheduleService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
 import com.shiftbot.state.ConversationState;
 import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
 import com.shiftbot.state.OnboardingFsm;
+import com.shiftbot.state.PersonalScheduleFsm;
 import com.shiftbot.util.MarkdownEscaper;
 import com.shiftbot.util.TimeUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -44,20 +46,24 @@ public class UpdateRouter {
     private final LocationsRepository locationsRepository;
     private final UsersRepository usersRepository;
     private final LocationAssignmentsRepository locationAssignmentsRepository;
+    private final PersonalScheduleService personalScheduleService;
     private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final ConversationStateStore stateStore;
     private final CoverRequestFsm coverRequestFsm;
     private final OnboardingFsm onboardingFsm;
+    private final PersonalScheduleFsm personalScheduleFsm;
     private final AuditService auditService;
     private final ZoneId zoneId;
+    private final Long adminTelegramId;
 
     public UpdateRouter(AuthService authService,
                         ScheduleService scheduleService,
                         RequestService requestService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, null, null, calendarKeyboardBuilder,
-                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(), null, zoneId);
+        this(authService, scheduleService, requestService, null, null, null, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
+                new PersonalScheduleFsm(), null, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -67,8 +73,9 @@ public class UpdateRouter {
                         AuditService auditService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, usersRepository, null, calendarKeyboardBuilder,
-                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(), auditService, zoneId);
+        this(authService, scheduleService, requestService, null, usersRepository, null, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
+                new PersonalScheduleFsm(), auditService, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -78,8 +85,8 @@ public class UpdateRouter {
                         ConversationStateStore stateStore,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, usersRepository, null, calendarKeyboardBuilder,
-                stateStore, new CoverRequestFsm(), new OnboardingFsm(), null, zoneId);
+        this(authService, scheduleService, requestService, null, usersRepository, null, null, calendarKeyboardBuilder,
+                stateStore, new CoverRequestFsm(), new OnboardingFsm(), new PersonalScheduleFsm(), null, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -89,8 +96,9 @@ public class UpdateRouter {
                         UsersRepository usersRepository,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, locationsRepository, usersRepository, null, calendarKeyboardBuilder,
-                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(), null, zoneId);
+        this(authService, scheduleService, requestService, locationsRepository, usersRepository, null, null, calendarKeyboardBuilder,
+                new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
+                new PersonalScheduleFsm(), null, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -102,8 +110,8 @@ public class UpdateRouter {
                         CoverRequestFsm coverRequestFsm,
                         AuditService auditService,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, locationsRepository, null, null, calendarKeyboardBuilder,
-                stateStore, coverRequestFsm, new OnboardingFsm(), auditService, zoneId);
+        this(authService, scheduleService, requestService, locationsRepository, null, null, null, calendarKeyboardBuilder,
+                stateStore, coverRequestFsm, new OnboardingFsm(), new PersonalScheduleFsm(), auditService, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -112,24 +120,30 @@ public class UpdateRouter {
                         LocationsRepository locationsRepository,
                         UsersRepository usersRepository,
                         LocationAssignmentsRepository locationAssignmentsRepository,
+                        PersonalScheduleService personalScheduleService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ConversationStateStore stateStore,
                         CoverRequestFsm coverRequestFsm,
                         OnboardingFsm onboardingFsm,
+                        PersonalScheduleFsm personalScheduleFsm,
                         AuditService auditService,
-                        ZoneId zoneId) {
+                        ZoneId zoneId,
+                        Long adminTelegramId) {
         this.authService = authService;
         this.scheduleService = scheduleService;
         this.requestService = requestService;
         this.locationsRepository = locationsRepository;
         this.usersRepository = usersRepository;
         this.locationAssignmentsRepository = locationAssignmentsRepository;
+        this.personalScheduleService = personalScheduleService;
         this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.stateStore = stateStore;
         this.coverRequestFsm = coverRequestFsm;
         this.onboardingFsm = onboardingFsm;
+        this.personalScheduleFsm = personalScheduleFsm;
         this.auditService = auditService;
         this.zoneId = zoneId;
+        this.adminTelegramId = adminTelegramId;
     }
 
     public void handle(Update update, BotNotificationPort bot) {
@@ -174,6 +188,12 @@ public class UpdateRouter {
             }
         }
 
+        if (stateOpt.isPresent() && personalScheduleFsm.supports(stateOpt.get())) {
+            if (handleScheduleMessage(user, text, stateOpt.get(), bot)) {
+                return;
+            }
+        }
+
         if (text.startsWith("/start")) {
             String welcome = "👋 Вітаємо, " + MarkdownEscaper.escape(user.getFullName()) + "!";
             bot.sendMarkdown(chatId, welcome, mainMenu(user));
@@ -181,7 +201,8 @@ public class UpdateRouter {
         }
 
         switch (text) {
-            case "Мій графік", "📅 Мій графік" -> sendMySchedule(user, bot);
+            case "🗓 Створити/Оновити мій графік" -> startScheduleFlow(user, bot);
+            case "👀 Переглянути мій графік" -> sendPersonalSchedule(user, bot);
             case "Потрібна заміна", "🆘 Потрібна заміна" -> startCoverFlow(user, bot);
             case "📥 Мої заявки" -> sendTmRequests(user, bot);
             case "🔁 Підміни" -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
@@ -195,6 +216,11 @@ public class UpdateRouter {
         Optional<ConversationState> stateOpt = stateStore.get(chatId);
         if (stateOpt.isPresent() && onboardingFsm.supports(stateOpt.get()) && data.startsWith("onboard:loc:")) {
             handleOnboardingLocation(chatId, data, stateOpt.get(), bot, callback);
+            return;
+        }
+
+        if (data.startsWith("admin:") && adminTelegramId != null) {
+            handleAdminDecision(chatId, data, bot);
             return;
         }
 
@@ -253,18 +279,51 @@ public class UpdateRouter {
         } else if (data.startsWith("M::")) {
             String action = data.substring("M::".length());
             switch (action) {
-                case "my" -> sendMySchedule(user, bot);
+                case "schedule_edit" -> startScheduleFlow(user, bot);
+                case "schedule_view" -> sendPersonalSchedule(user, bot);
                 case "cover" -> startCoverFlow(user, bot);
                 case "requests" -> sendTmRequests(user, bot);
                 default -> bot.sendMarkdown(chatId, "Меню в розробці", null);
             }
-        } else if (data.startsWith("user:activate:")) {
-            handleUserStatusChange(user, data, true, bot);
-        } else if (data.startsWith("user:reject:")) {
-            handleUserStatusChange(user, data, false, bot);
         } else if (data.startsWith("location:")) {
             handleLocationCallback(user, data, bot);
         }
+    }
+
+    private void handleAdminDecision(Long chatId, String data, BotNotificationPort bot) {
+        if (adminTelegramId == null || !adminTelegramId.equals(chatId)) {
+            bot.sendMarkdown(chatId, "⛔ Недостатньо прав для цієї дії", null);
+            return;
+        }
+        if (usersRepository == null) {
+            bot.sendMarkdown(chatId, "⛔ Репозиторій користувачів недоступний", null);
+            return;
+        }
+        String[] parts = data.split(":");
+        if (parts.length != 3) {
+            bot.sendMarkdown(chatId, "Невірний формат запиту", null);
+            return;
+        }
+        boolean approve = "approve".equals(parts[1]);
+        long targetId;
+        try {
+            targetId = Long.parseLong(parts[2]);
+        } catch (NumberFormatException e) {
+            bot.sendMarkdown(chatId, "Невірний формат ID користувача", null);
+            return;
+        }
+        Optional<User> targetOpt = usersRepository.findById(targetId);
+        if (targetOpt.isEmpty()) {
+            bot.sendMarkdown(chatId, "Користувача не знайдено", null);
+            return;
+        }
+        User target = targetOpt.get();
+        UserStatus newStatus = approve ? UserStatus.APPROVED : UserStatus.REJECTED;
+        User updated = new User(target.getUserId(), target.getUsername(), target.getFullName(), target.getLocationId(),
+                target.getPhone(), target.getRole(), newStatus, target.getCreatedAt(), target.getCreatedBy());
+        usersRepository.updateRow(target.getUserId(), updated);
+        bot.sendMarkdown(chatId, approve ? "✅ Користувача підтверджено" : "❌ Заявку відхилено", null);
+        bot.sendMarkdown(target.getUserId(), approve ? "Вас підтверджено, доступ відкрито" : "Заявку відхилено", null);
     }
 
     private void sendMySchedule(User user, BotNotificationPort bot) {
@@ -527,7 +586,8 @@ public class UpdateRouter {
             return;
         }
         String locationId = data.substring("onboard:loc:".length());
-        if (locationsRepository.findById(locationId).isEmpty()) {
+        Optional<Location> locationOpt = locationsRepository.findById(locationId);
+        if (locationOpt.isEmpty()) {
             bot.sendMarkdown(chatId, "Локацію не знайдено", null);
             return;
         }
@@ -537,7 +597,7 @@ public class UpdateRouter {
             stateStore.put(chatId, onboardingFsm.start());
             return;
         }
-        AuthService.OnboardResult onboard = authService.register(chatId, callback.getFrom().getUserName(), fullName);
+        AuthService.OnboardResult onboard = authService.register(chatId, callback.getFrom().getUserName(), fullName, locationId);
         if (locationAssignmentsRepository != null) {
             LocationAssignment assignment = new LocationAssignment(locationId, chatId, true, TimeUtils.today(zoneId), null);
             locationAssignmentsRepository.save(assignment);
@@ -545,38 +605,71 @@ public class UpdateRouter {
         stateStore.clear(chatId);
         String message = onboard.message() != null ? onboard.message() : "Реєстрація завершена.";
         bot.sendMarkdown(chatId, MarkdownEscaper.escape(message), null);
+        String locationName = locationOpt.map(Location::getName).orElse(locationId);
+        notifyAdminAboutRegistration(chatId, callback.getFrom().getUserName(), fullName, locationName, bot);
     }
 
-    private void handleUserStatusChange(User actor, String data, boolean activate, BotNotificationPort bot) {
-        if (actor.getRole() != Role.TM && actor.getRole() != Role.SENIOR) {
-            bot.sendMarkdown(actor.getUserId(), "⛔ Недостатньо прав для цієї дії", null);
+    private void notifyAdminAboutRegistration(Long chatId, String username, String fullName, String locationName, BotNotificationPort bot) {
+        if (adminTelegramId == null) {
             return;
         }
-        if (usersRepository == null) {
-            bot.sendMarkdown(actor.getUserId(), "⛔ Репозиторій користувачів недоступний", null);
+        StringBuilder text = new StringBuilder("🆕 Нова заявка на реєстрацію:\n");
+        text.append("ПІБ: ").append(MarkdownEscaper.escape(fullName)).append("\n");
+        text.append("Telegram ID: ").append(chatId).append("\n");
+        if (username != null && !username.isBlank()) {
+            text.append("Username: @").append(MarkdownEscaper.escape(username)).append("\n");
+        }
+        text.append("Локація: ").append(MarkdownEscaper.escape(locationName));
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(Arrays.asList(
+                InlineKeyboardButton.builder()
+                        .text("✅ Підтвердити")
+                        .callbackData("admin:approve:" + chatId)
+                        .build(),
+                InlineKeyboardButton.builder()
+                        .text("❌ Відхилити")
+                        .callbackData("admin:reject:" + chatId)
+                        .build()
+        ));
+        markup.setKeyboard(rows);
+        bot.sendMarkdown(adminTelegramId, text.toString(), markup);
+    }
+
+    private void startScheduleFlow(User user, BotNotificationPort bot) {
+        if (personalScheduleService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс графіків недоступний", null);
             return;
         }
-        long targetId;
-        try {
-            targetId = Long.parseLong(data.substring(data.lastIndexOf(":") + 1));
-        } catch (NumberFormatException e) {
-            bot.sendMarkdown(actor.getUserId(), "Невірний формат запиту", null);
+        ConversationState state = personalScheduleFsm.start();
+        stateStore.put(user.getUserId(), state);
+        bot.sendMarkdown(user.getUserId(), "Введіть ваш графік одним повідомленням (наприклад: Пн 10-18, Вт вихідний, Ср 12-20)", null);
+    }
+
+    private boolean handleScheduleMessage(User user, String text, ConversationState state, BotNotificationPort bot) {
+        if (text == null || text.isBlank()) {
+            bot.sendMarkdown(user.getUserId(), "Графік не може бути порожнім, спробуйте ще раз", null);
+            return true;
+        }
+        personalScheduleService.saveOrUpdate(user.getUserId(), text.trim());
+        stateStore.clear(user.getUserId());
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(Collections.singletonList(buttonRow("👀 Переглянути мій графік", "M::schedule_view")));
+        bot.sendMarkdown(user.getUserId(), "Графік збережено", markup);
+        return true;
+    }
+
+    private void sendPersonalSchedule(User user, BotNotificationPort bot) {
+        if (personalScheduleService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс графіків недоступний", null);
             return;
         }
-        Optional<User> targetOpt = usersRepository.findById(targetId);
-        if (targetOpt.isEmpty()) {
-            bot.sendMarkdown(actor.getUserId(), "Користувача не знайдено", null);
+        Optional<com.shiftbot.model.ScheduleEntry> entry = personalScheduleService.findByUser(user.getUserId());
+        if (entry.isEmpty() || entry.get().getScheduleText() == null || entry.get().getScheduleText().isBlank()) {
+            bot.sendMarkdown(user.getUserId(), "Графік порожній, створіть його", null);
             return;
         }
-        User target = targetOpt.get();
-        UserStatus newStatus = activate ? UserStatus.ACTIVE : UserStatus.BLOCKED;
-        User updated = new User(target.getUserId(), target.getUsername(), target.getFullName(), target.getPhone(), target.getRole(), newStatus, target.getCreatedAt(), target.getCreatedBy());
-        usersRepository.updateRow(target.getUserId(), updated);
-        if (auditService != null) {
-            auditService.logEvent(actor.getUserId(), activate ? "user_activated" : "user_rejected", "user", String.valueOf(target.getUserId()), Map.of("previousStatus", target.getStatus().name(), "newStatus", newStatus.name()), bot);
-        }
-        bot.sendMarkdown(actor.getUserId(), MarkdownEscaper.escape((activate ? "✅ " : "⛔ ") + target.getFullName()), null);
-        bot.sendMarkdown(target.getUserId(), activate ? "✅ Ваш профіль активовано" : "⛔ Ваш профіль відхилено", null);
+        bot.sendMarkdown(user.getUserId(), MarkdownEscaper.escape(entry.get().getScheduleText()), null);
     }
 
     private List<InlineKeyboardButton> buttonRow(String text, String callback) {
@@ -606,11 +699,8 @@ public class UpdateRouter {
 
     private InlineKeyboardMarkup mainMenu(User user) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(buttonRow("📅 Мій графік", "M::my"));
-        rows.add(buttonRow("🆘 Потрібна заміна", "M::cover"));
-        if (user.getRole() == Role.TM || user.getRole() == Role.SENIOR) {
-            rows.add(buttonRow("📥 Мої заявки", "M::requests"));
-        }
+        rows.add(buttonRow("🗓 Створити/Оновити мій графік", "M::schedule_edit"));
+        rows.add(buttonRow("👀 Переглянути мій графік", "M::schedule_view"));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
         return markup;
