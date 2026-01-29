@@ -29,6 +29,7 @@ public class Application {
         LocationAssignmentsRepository locationAssignmentsRepository = new LocationAssignmentsRepository(sheetsClient);
         ShiftsRepository shiftsRepository = new ShiftsRepository(sheetsClient);
         RequestsRepository requestsRepository = new RequestsRepository(sheetsClient);
+        SubstitutionRequestsRepository substitutionRequestsRepository = new SubstitutionRequestsRepository(sheetsClient);
         AccessRequestsRepository accessRequestsRepository = new AccessRequestsRepository(sheetsClient);
         AuditRepository auditRepository = new AuditRepository(sheetsClient);
         SchedulesRepository schedulesRepository = new SchedulesRepository(sheetsClient);
@@ -39,13 +40,14 @@ public class Application {
         AuthService authService = new AuthService(usersRepository, auditService, accessRequestService, config.getZoneId());
         ScheduleService scheduleService = new ScheduleService(shiftsRepository, locationsRepository, config.getZoneId());
         RequestService requestService = new RequestService(requestsRepository, shiftsRepository, config.getZoneId());
+        SubstitutionService substitutionService = new SubstitutionService(substitutionRequestsRepository, auditService, config.getZoneId());
         PersonalScheduleService personalScheduleService = new PersonalScheduleService(schedulesRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, accessRequestService, locationsRepository,
-                usersRepository, locationAssignmentsRepository, personalScheduleService, calendarKeyboardBuilder, stateStore, new CoverRequestFsm(),
-                new OnboardingFsm(), new com.shiftbot.state.PersonalScheduleFsm(), auditService, config.getZoneId(),
-                Long.parseLong(config.getAdminTelegramId()));
+                usersRepository, locationAssignmentsRepository, personalScheduleService, substitutionService, calendarKeyboardBuilder, stateStore,
+                new CoverRequestFsm(), new OnboardingFsm(), new com.shiftbot.state.PersonalScheduleFsm(), auditService,
+                config.getZoneId(), Long.parseLong(config.getAdminTelegramId()));
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
         auditService.setBot(bot);
 

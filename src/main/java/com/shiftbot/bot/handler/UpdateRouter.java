@@ -7,10 +7,13 @@ import com.shiftbot.model.Location;
 import com.shiftbot.model.LocationAssignment;
 import com.shiftbot.model.Request;
 import com.shiftbot.model.Shift;
+import com.shiftbot.model.SubstitutionRequest;
 import com.shiftbot.model.User;
 import com.shiftbot.model.enums.RequestStatus;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.ShiftStatus;
+import com.shiftbot.model.enums.SubstitutionReasonCode;
+import com.shiftbot.model.enums.SubstitutionStatus;
 import com.shiftbot.model.enums.UserStatus;
 import com.shiftbot.repository.LocationAssignmentsRepository;
 import com.shiftbot.repository.LocationsRepository;
@@ -21,12 +24,15 @@ import com.shiftbot.service.AuthService;
 import com.shiftbot.service.PersonalScheduleService;
 import com.shiftbot.service.RequestService;
 import com.shiftbot.service.ScheduleService;
+import com.shiftbot.service.SubstitutionService;
 import com.shiftbot.state.ConversationState;
 import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
 import com.shiftbot.state.OnboardingFsm;
 import com.shiftbot.state.PersonalScheduleFsm;
+import com.shiftbot.state.SubstitutionRequestFsm;
 import com.shiftbot.util.CalendarRenderer;
+import com.shiftbot.util.HtmlEscaper;
 import com.shiftbot.util.MarkdownEscaper;
 import com.shiftbot.util.TimeUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -48,6 +54,7 @@ import java.util.stream.Collectors;
 
 public class UpdateRouter {
     private static final DateTimeFormatter ACCESS_REQUEST_DATE_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
+    private static final DateTimeFormatter SUBSTITUTION_DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private final AuthService authService;
     private final ScheduleService scheduleService;
     private final RequestService requestService;
@@ -56,11 +63,13 @@ public class UpdateRouter {
     private final UsersRepository usersRepository;
     private final LocationAssignmentsRepository locationAssignmentsRepository;
     private final PersonalScheduleService personalScheduleService;
+    private final SubstitutionService substitutionService;
     private final CalendarKeyboardBuilder calendarKeyboardBuilder;
     private final ConversationStateStore stateStore;
     private final CoverRequestFsm coverRequestFsm;
     private final OnboardingFsm onboardingFsm;
     private final PersonalScheduleFsm personalScheduleFsm;
+    private final SubstitutionRequestFsm substitutionRequestFsm;
     private final AuditService auditService;
     private final ZoneId zoneId;
     private final Long adminTelegramId;
@@ -70,9 +79,9 @@ public class UpdateRouter {
                         RequestService requestService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, null, null, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, null, null, null, null, null, calendarKeyboardBuilder,
                 new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
-                new PersonalScheduleFsm(), null, zoneId, null);
+                new PersonalScheduleFsm(), new SubstitutionRequestFsm(), null, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -82,9 +91,9 @@ public class UpdateRouter {
                         AuditService auditService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, null, usersRepository, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, null, usersRepository, null, null, null, calendarKeyboardBuilder,
                 new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
-                new PersonalScheduleFsm(), auditService, zoneId, null);
+                new PersonalScheduleFsm(), new SubstitutionRequestFsm(), auditService, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -94,8 +103,8 @@ public class UpdateRouter {
                         ConversationStateStore stateStore,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, null, usersRepository, null, null, calendarKeyboardBuilder,
-                stateStore, new CoverRequestFsm(), new OnboardingFsm(), new PersonalScheduleFsm(), null, zoneId, null);
+        this(authService, scheduleService, requestService, null, null, usersRepository, null, null, null, calendarKeyboardBuilder,
+                stateStore, new CoverRequestFsm(), new OnboardingFsm(), new PersonalScheduleFsm(), new SubstitutionRequestFsm(), null, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -105,9 +114,9 @@ public class UpdateRouter {
                         UsersRepository usersRepository,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, locationsRepository, usersRepository, null, null, calendarKeyboardBuilder,
+        this(authService, scheduleService, requestService, null, locationsRepository, usersRepository, null, null, null, calendarKeyboardBuilder,
                 new ConversationStateStore(Duration.ofMinutes(10)), new CoverRequestFsm(), new OnboardingFsm(),
-                new PersonalScheduleFsm(), null, zoneId, null);
+                new PersonalScheduleFsm(), new SubstitutionRequestFsm(), null, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -119,8 +128,9 @@ public class UpdateRouter {
                         CoverRequestFsm coverRequestFsm,
                         AuditService auditService,
                         ZoneId zoneId) {
-        this(authService, scheduleService, requestService, null, locationsRepository, null, null, null, calendarKeyboardBuilder,
-                stateStore, coverRequestFsm, new OnboardingFsm(), new PersonalScheduleFsm(), auditService, zoneId, null);
+        this(authService, scheduleService, requestService, null, locationsRepository, null, null, null, null, calendarKeyboardBuilder,
+                stateStore, coverRequestFsm, new OnboardingFsm(), new PersonalScheduleFsm(), new SubstitutionRequestFsm(),
+                auditService, zoneId, null);
     }
 
     public UpdateRouter(AuthService authService,
@@ -131,11 +141,13 @@ public class UpdateRouter {
                         UsersRepository usersRepository,
                         LocationAssignmentsRepository locationAssignmentsRepository,
                         PersonalScheduleService personalScheduleService,
+                        SubstitutionService substitutionService,
                         CalendarKeyboardBuilder calendarKeyboardBuilder,
                         ConversationStateStore stateStore,
                         CoverRequestFsm coverRequestFsm,
                         OnboardingFsm onboardingFsm,
                         PersonalScheduleFsm personalScheduleFsm,
+                        SubstitutionRequestFsm substitutionRequestFsm,
                         AuditService auditService,
                         ZoneId zoneId,
                         Long adminTelegramId) {
@@ -147,11 +159,13 @@ public class UpdateRouter {
         this.usersRepository = usersRepository;
         this.locationAssignmentsRepository = locationAssignmentsRepository;
         this.personalScheduleService = personalScheduleService;
+        this.substitutionService = substitutionService;
         this.calendarKeyboardBuilder = calendarKeyboardBuilder;
         this.stateStore = stateStore;
         this.coverRequestFsm = coverRequestFsm;
         this.onboardingFsm = onboardingFsm;
         this.personalScheduleFsm = personalScheduleFsm;
+        this.substitutionRequestFsm = substitutionRequestFsm;
         this.auditService = auditService;
         this.zoneId = zoneId;
         this.adminTelegramId = adminTelegramId;
@@ -210,6 +224,12 @@ public class UpdateRouter {
             }
         }
 
+        if (stateOpt.isPresent() && substitutionRequestFsm.supports(stateOpt.get())) {
+            if (handleSubstitutionMessage(user, text, stateOpt.get(), bot)) {
+                return;
+            }
+        }
+
         if (stateOpt.isPresent() && personalScheduleFsm.supports(stateOpt.get())) {
             if (handleScheduleMessage(user, text, stateOpt.get(), bot)) {
                 return;
@@ -220,6 +240,8 @@ public class UpdateRouter {
             case "🗓 Створити/Оновити мій графік" -> startScheduleFlow(user, bot);
             case "👀 Переглянути мій графік" -> sendPersonalSchedule(user, bot);
             case "Потрібна заміна", "🆘 Потрібна заміна" -> startCoverFlow(user, bot);
+            case "🆘 Потрібна підміна", "🚫 Не можу вийти" -> startSubstitutionFlow(user, bot);
+            case "📌 Мої запити" -> sendSubstitutionRequests(user, bot);
             case "📥 Мої заявки" -> sendTmRequests(user, bot);
             case "📨 Заявки" -> sendAccessRequests(user, bot);
             case "🔄 Перевірити статус" -> handleStatusCheck(user, bot);
@@ -257,6 +279,21 @@ public class UpdateRouter {
 
         if (!onboard.allowed()) {
             handleBlockedUser(user, bot);
+            return;
+        }
+
+        if (data.startsWith("subst:senior:")) {
+            handleSubstitutionSeniorDecision(user, data, bot);
+            return;
+        }
+
+        if (data.startsWith("subst:cancel:")) {
+            handleSubstitutionCancel(user, data, bot);
+            return;
+        }
+
+        if (data.startsWith("subst:")) {
+            handleSubstitutionCallback(user, callback, stateOpt.orElse(substitutionRequestFsm.start()), bot);
             return;
         }
 
@@ -326,6 +363,8 @@ public class UpdateRouter {
                 case "schedule_edit" -> startScheduleFlow(user, bot);
                 case "schedule_view" -> sendPersonalSchedule(user, bot);
                 case "cover" -> startCoverFlow(user, bot);
+                case "substitution" -> startSubstitutionFlow(user, bot);
+                case "substitution_requests" -> sendSubstitutionRequests(user, bot);
                 case "requests" -> sendTmRequests(user, bot);
                 case "main_menu" -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
                 default -> bot.sendMarkdown(chatId, "Меню в розробці", null);
@@ -623,6 +662,372 @@ public class UpdateRouter {
             stateStore.put(user.getUserId(), next);
             bot.sendMarkdown(user.getUserId(), "Додайте коментар", null);
         }
+    }
+
+    private void startSubstitutionFlow(User user, BotNotificationPort bot) {
+        if (substitutionService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс підмін зараз недоступний", null);
+            return;
+        }
+        if (user.getRole() != Role.SELLER) {
+            bot.sendMarkdown(user.getUserId(), "⛔ Недостатньо прав", null);
+            return;
+        }
+        ConversationState state = substitutionRequestFsm.start();
+        if (user.getLocationId() != null && !user.getLocationId().isBlank()) {
+            state.getData().put(SubstitutionRequestFsm.LOCATION_KEY, user.getLocationId());
+        }
+        stateStore.put(user.getUserId(), state);
+        bot.sendMarkdown(user.getUserId(), "На яку дату потрібна підміна?", substitutionDatePicker());
+    }
+
+    private void handleSubstitutionCallback(User user, CallbackQuery callback, ConversationState state, BotNotificationPort bot) {
+        String data = callback.getData();
+        if (data.startsWith("subst:date:")) {
+            handleSubstitutionChooseDate(user, data, state, bot);
+            return;
+        }
+        if (data.startsWith("subst:reason:")) {
+            handleSubstitutionChooseReason(user, data, state, bot);
+            return;
+        }
+        if ("subst:send".equals(data)) {
+            handleSubstitutionConfirmSend(user, state, bot);
+        }
+    }
+
+    private boolean handleSubstitutionMessage(User user, String text, ConversationState state, BotNotificationPort bot) {
+        SubstitutionRequestFsm.Step step = substitutionRequestFsm.currentStep(state);
+        switch (step) {
+            case DATE_INPUT -> {
+                LocalDate date;
+                try {
+                    date = LocalDate.parse(text.trim());
+                } catch (Exception e) {
+                    bot.sendMarkdown(user.getUserId(), "Некоректна дата. Введіть у форматі YYYY-MM-DD", null);
+                    return true;
+                }
+                Map<String, String> extra = Map.of(SubstitutionRequestFsm.DATE_KEY, date.toString());
+                ConversationState next = substitutionRequestFsm.advance(state, SubstitutionRequestFsm.Step.REASON, extra);
+                stateStore.put(user.getUserId(), next);
+                bot.sendMarkdown(user.getUserId(), "Вкажіть причину (необовʼязково)", substitutionReasonPicker());
+                return true;
+            }
+            case REASON_TEXT -> {
+                String reasonText = normalizeOptionalText(text);
+                Map<String, String> extra = Map.of(SubstitutionRequestFsm.REASON_TEXT_KEY, reasonText);
+                ConversationState next = substitutionRequestFsm.advance(state, SubstitutionRequestFsm.Step.CONFIRM, extra);
+                stateStore.put(user.getUserId(), next);
+                sendSubstitutionConfirmation(user, next, bot);
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    private void handleSubstitutionChooseDate(User user, String data, ConversationState state, BotNotificationPort bot) {
+        LocalDate today = TimeUtils.today(zoneId);
+        if ("subst:date:pick".equals(data)) {
+            ConversationState next = substitutionRequestFsm.advance(state, SubstitutionRequestFsm.Step.DATE_INPUT, null);
+            stateStore.put(user.getUserId(), next);
+            bot.sendMarkdown(user.getUserId(), "Введіть дату у форматі YYYY-MM-DD", null);
+            return;
+        }
+        LocalDate date = "subst:date:tomorrow".equals(data) ? today.plusDays(1) : today;
+        Map<String, String> extra = Map.of(SubstitutionRequestFsm.DATE_KEY, date.toString());
+        ConversationState next = substitutionRequestFsm.advance(state, SubstitutionRequestFsm.Step.REASON, extra);
+        stateStore.put(user.getUserId(), next);
+        bot.sendMarkdown(user.getUserId(), "Вкажіть причину (необовʼязково)", substitutionReasonPicker());
+    }
+
+    private void handleSubstitutionChooseReason(User user, String data, ConversationState state, BotNotificationPort bot) {
+        String codeValue = data.substring("subst:reason:".length());
+        SubstitutionReasonCode reasonCode = switch (codeValue) {
+            case "sick" -> SubstitutionReasonCode.SICK;
+            case "family" -> SubstitutionReasonCode.FAMILY;
+            case "force" -> SubstitutionReasonCode.FORCE;
+            default -> SubstitutionReasonCode.OTHER;
+        };
+        Map<String, String> extra = new HashMap<>();
+        extra.put(SubstitutionRequestFsm.REASON_CODE_KEY, reasonCode.name());
+        if (reasonCode == SubstitutionReasonCode.OTHER) {
+            ConversationState next = substitutionRequestFsm.advance(state, SubstitutionRequestFsm.Step.REASON_TEXT, extra);
+            stateStore.put(user.getUserId(), next);
+            bot.sendMarkdown(user.getUserId(), "Вкажіть причину (необовʼязково)", null);
+            return;
+        }
+        ConversationState next = substitutionRequestFsm.advance(state, SubstitutionRequestFsm.Step.CONFIRM, extra);
+        stateStore.put(user.getUserId(), next);
+        sendSubstitutionConfirmation(user, next, bot);
+    }
+
+    private void handleSubstitutionConfirmSend(User user, ConversationState state, BotNotificationPort bot) {
+        if (substitutionService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс підмін зараз недоступний", null);
+            return;
+        }
+        String dateValue = state.getData().get(SubstitutionRequestFsm.DATE_KEY);
+        if (dateValue == null || dateValue.isBlank()) {
+            bot.sendMarkdown(user.getUserId(), "Не вдалося зчитати дату. Спробуйте ще раз.", null);
+            return;
+        }
+        LocalDate date = LocalDate.parse(dateValue);
+        String reasonCodeValue = state.getData().get(SubstitutionRequestFsm.REASON_CODE_KEY);
+        SubstitutionReasonCode reasonCode = reasonCodeValue == null ? null : SubstitutionReasonCode.valueOf(reasonCodeValue);
+        String reasonText = normalizeOptionalText(state.getData().get(SubstitutionRequestFsm.REASON_TEXT_KEY));
+        String location = state.getData().getOrDefault(SubstitutionRequestFsm.LOCATION_KEY, "");
+        SubstitutionRequest request = substitutionService.createRequest(user, date, reasonCode, reasonText, location);
+        notifySeniorsAboutSubstitution(request, user, bot);
+        bot.sendMarkdown(user.getUserId(), "Запит на підміну відправлено ✅", mainMenu(user));
+        stateStore.clear(user.getUserId());
+    }
+
+    private void handleSubstitutionSeniorDecision(User user, String data, BotNotificationPort bot) {
+        if (user.getRole() != Role.SENIOR) {
+            bot.sendMarkdown(user.getUserId(), "⛔ Недостатньо прав", null);
+            return;
+        }
+        if (substitutionService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс підмін зараз недоступний", null);
+            return;
+        }
+        String[] parts = data.split(":");
+        if (parts.length < 4) {
+            bot.sendMarkdown(user.getUserId(), "Невірний формат запиту", null);
+            return;
+        }
+        String action = parts[2];
+        String requestId = parts[3];
+        SubstitutionRequest updated;
+        switch (action) {
+            case "inprogress" -> updated = substitutionService.markInProgress(requestId, user.getUserId());
+            case "reject" -> updated = substitutionService.reject(requestId, user.getUserId());
+            case "resolve" -> updated = substitutionService.resolve(requestId, user.getUserId());
+            default -> {
+                bot.sendMarkdown(user.getUserId(), "Невірна дія", null);
+                return;
+            }
+        }
+        notifySellerAboutSubstitutionDecision(updated, bot);
+        bot.sendMarkdown(user.getUserId(), "✅ Статус оновлено", null);
+    }
+
+    private void handleSubstitutionCancel(User user, String data, BotNotificationPort bot) {
+        if (substitutionService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс підмін зараз недоступний", null);
+            return;
+        }
+        if (user.getRole() != Role.SELLER) {
+            bot.sendMarkdown(user.getUserId(), "⛔ Недостатньо прав", null);
+            return;
+        }
+        String requestId = data.substring("subst:cancel:".length());
+        try {
+            SubstitutionRequest updated = substitutionService.cancel(requestId, user.getUserId());
+            bot.sendMarkdown(user.getUserId(), "Запит скасовано ✅", mainMenu(user));
+            notifySeniorsAboutSubstitutionCancellation(updated, user, bot);
+        } catch (Exception e) {
+            bot.sendMarkdown(user.getUserId(), "Не вдалося скасувати запит: " + MarkdownEscaper.escape(e.getMessage()), null);
+        }
+    }
+
+    private void sendSubstitutionConfirmation(User user, ConversationState state, BotNotificationPort bot) {
+        String dateValue = state.getData().getOrDefault(SubstitutionRequestFsm.DATE_KEY, "");
+        String reasonCodeValue = state.getData().get(SubstitutionRequestFsm.REASON_CODE_KEY);
+        SubstitutionReasonCode reasonCode = reasonCodeValue == null ? null : SubstitutionReasonCode.valueOf(reasonCodeValue);
+        String reasonText = normalizeOptionalText(state.getData().get(SubstitutionRequestFsm.REASON_TEXT_KEY));
+        String location = state.getData().getOrDefault(SubstitutionRequestFsm.LOCATION_KEY, "");
+        StringBuilder message = new StringBuilder();
+        message.append("Перевірте запит:\n");
+        message.append("Дата: ").append(HtmlEscaper.escape(dateValue)).append("\n");
+        if (!location.isBlank()) {
+            message.append("Локація: ").append(HtmlEscaper.escape(location)).append("\n");
+        }
+        message.append("Причина: ").append(HtmlEscaper.escape(formatReason(reasonCode, reasonText))).append("\n");
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(List.of(buttonRow("✅ Відправити", "subst:send")));
+        bot.sendHtml(user.getUserId(), message.toString(), markup);
+    }
+
+    private InlineKeyboardMarkup substitutionDatePicker() {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(Arrays.asList(
+                InlineKeyboardButton.builder().text("Сьогодні").callbackData("subst:date:today").build(),
+                InlineKeyboardButton.builder().text("Завтра").callbackData("subst:date:tomorrow").build()
+        ));
+        rows.add(Collections.singletonList(
+                InlineKeyboardButton.builder().text("Інша дата").callbackData("subst:date:pick").build()
+        ));
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup substitutionReasonPicker() {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(Arrays.asList(
+                InlineKeyboardButton.builder().text("Хворію").callbackData("subst:reason:sick").build(),
+                InlineKeyboardButton.builder().text("Сімейні обставини").callbackData("subst:reason:family").build()
+        ));
+        rows.add(Arrays.asList(
+                InlineKeyboardButton.builder().text("Форс-мажор").callbackData("subst:reason:force").build(),
+                InlineKeyboardButton.builder().text("Інше (ввести текст)").callbackData("subst:reason:other").build()
+        ));
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    private void notifySeniorsAboutSubstitution(SubstitutionRequest request, User seller, BotNotificationPort bot) {
+        if (usersRepository == null) {
+            return;
+        }
+        List<User> seniors = usersRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.SENIOR)
+                .toList();
+        if (seniors.isEmpty()) {
+            return;
+        }
+        String sellerLine = buildSellerLine(seller);
+        String reason = formatReason(request.getReasonCode(), request.getReasonText());
+        String createdAt = formatSubstitutionCreatedAt(request.getCreatedAt());
+        StringBuilder message = new StringBuilder();
+        message.append("🆘 Потрібна підміна\n");
+        message.append("Продавець: ").append(HtmlEscaper.escape(sellerLine)).append("\n");
+        message.append("Локація: ").append(HtmlEscaper.escape(optionalValue(request.getLocation()))).append("\n");
+        message.append("Дата: ").append(HtmlEscaper.escape(request.getShiftDate().toString())).append("\n");
+        message.append("Причина: ").append(HtmlEscaper.escape(reason)).append("\n");
+        message.append("Створено: ").append(HtmlEscaper.escape(createdAt));
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(List.of(
+                Arrays.asList(
+                        InlineKeyboardButton.builder().text("✅ В роботі").callbackData("subst:senior:inprogress:" + request.getId()).build(),
+                        InlineKeyboardButton.builder().text("❌ Відхилити").callbackData("subst:senior:reject:" + request.getId()).build()
+                ),
+                Collections.singletonList(
+                        InlineKeyboardButton.builder().text("✅ Закрито").callbackData("subst:senior:resolve:" + request.getId()).build()
+                )
+        ));
+        for (User senior : seniors) {
+            bot.sendHtml(senior.getUserId(), message.toString(), markup);
+        }
+    }
+
+    private void notifySellerAboutSubstitutionDecision(SubstitutionRequest request, BotNotificationPort bot) {
+        String message = switch (request.getStatus()) {
+            case IN_PROGRESS -> "Запит взято в роботу ✅";
+            case REJECTED -> "Запит відхилено ❌";
+            case RESOLVED -> "Підміна підтверджена/закрито ✅";
+            default -> "Статус оновлено";
+        };
+        bot.sendMarkdown(request.getSellerTelegramId(), message, null);
+    }
+
+    private void notifySeniorsAboutSubstitutionCancellation(SubstitutionRequest request, User seller, BotNotificationPort bot) {
+        if (usersRepository == null) {
+            return;
+        }
+        List<User> seniors = usersRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.SENIOR)
+                .toList();
+        if (seniors.isEmpty()) {
+            return;
+        }
+        String sellerLine = buildSellerLine(seller);
+        String message = "Запит на підміну скасовано\nПродавець: " + HtmlEscaper.escape(sellerLine)
+                + "\nДата: " + HtmlEscaper.escape(request.getShiftDate().toString());
+        for (User senior : seniors) {
+            bot.sendHtml(senior.getUserId(), message, null);
+        }
+    }
+
+    private void sendSubstitutionRequests(User user, BotNotificationPort bot) {
+        if (substitutionService == null) {
+            bot.sendMarkdown(user.getUserId(), "Сервіс підмін зараз недоступний", null);
+            return;
+        }
+        if (user.getRole() != Role.SELLER) {
+            bot.sendMarkdown(user.getUserId(), "⛔ Недостатньо прав", null);
+            return;
+        }
+        List<SubstitutionRequest> requests = substitutionService.listBySeller(user.getUserId());
+        if (requests.isEmpty()) {
+            bot.sendMarkdown(user.getUserId(), "Немає активних запитів", null);
+            return;
+        }
+        StringBuilder message = new StringBuilder("📌 Мої запити:\n");
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (SubstitutionRequest request : requests) {
+            message.append("• ")
+                    .append(request.getShiftDate())
+                    .append(" | ")
+                    .append(request.getStatus().name())
+                    .append("\n");
+            if (request.getStatus() == SubstitutionStatus.OPEN) {
+                rows.add(Collections.singletonList(
+                        InlineKeyboardButton.builder()
+                                .text("🗑 Скасувати")
+                                .callbackData("subst:cancel:" + request.getId())
+                                .build()
+                ));
+            }
+        }
+        InlineKeyboardMarkup markup = null;
+        if (!rows.isEmpty()) {
+            markup = new InlineKeyboardMarkup();
+            markup.setKeyboard(rows);
+        }
+        bot.sendHtml(user.getUserId(), HtmlEscaper.escape(message.toString()), markup);
+    }
+
+    private String formatSubstitutionCreatedAt(java.time.Instant createdAt) {
+        if (createdAt == null) {
+            return "невідомо";
+        }
+        LocalDateTime localDateTime = LocalDateTime.ofInstant(createdAt, zoneId);
+        return localDateTime.format(SUBSTITUTION_DATE_TIME_FORMAT);
+    }
+
+    private String formatReason(SubstitutionReasonCode reasonCode, String reasonText) {
+        if (reasonCode == null) {
+            return "не вказано";
+        }
+        String label = switch (reasonCode) {
+            case SICK -> "Хворію";
+            case FAMILY -> "Сімейні обставини";
+            case FORCE -> "Форс-мажор";
+            case OTHER -> "Інше";
+        };
+        if (reasonText != null && !reasonText.isBlank()) {
+            return label + ": " + reasonText.trim();
+        }
+        return label;
+    }
+
+    private String normalizeOptionalText(String text) {
+        if (text == null) {
+            return "";
+        }
+        String trimmed = text.trim();
+        if (trimmed.equals("-") || trimmed.equals("—") || trimmed.equalsIgnoreCase("skip")) {
+            return "";
+        }
+        return trimmed;
+    }
+
+    private String buildSellerLine(User seller) {
+        String fullName = seller.getFullName() == null ? "" : seller.getFullName();
+        String username = seller.getUsername();
+        if (username == null || username.isBlank()) {
+            return fullName.trim();
+        }
+        return fullName.trim() + " (@" + username.trim() + ")";
+    }
+
+    private String optionalValue(String value) {
+        return value == null || value.isBlank() ? "—" : value;
     }
 
     private boolean handleCoverMessage(User user, String text, ConversationState state, BotNotificationPort bot) {
@@ -1051,6 +1456,10 @@ public class UpdateRouter {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         rows.add(buttonRow("🗓 Створити/Оновити мій графік", "M::schedule_edit"));
         rows.add(buttonRow("👀 Переглянути мій графік", "M::schedule_view"));
+        if (user.getRole() == Role.SELLER) {
+            rows.add(buttonRow("🆘 Потрібна підміна", "M::substitution"));
+            rows.add(buttonRow("📌 Мої запити", "M::substitution_requests"));
+        }
         if (user.getRole() == Role.SENIOR) {
             rows.add(buttonRow("📨 Заявки", "requests:list"));
         }
