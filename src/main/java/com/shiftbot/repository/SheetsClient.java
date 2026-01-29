@@ -59,10 +59,11 @@ public class SheetsClient {
     }
 
     public AppendValuesResponse appendRow(String range, List<Object> row) {
+        String appendRange = normalizeAppendRange(range);
         try {
             ValueRange body = new ValueRange().setValues(Collections.singletonList(row));
             return sheets.spreadsheets().values()
-                    .append(spreadsheetId, range, body)
+                    .append(spreadsheetId, appendRange, body)
                     .setValueInputOption("USER_ENTERED")
                     .execute();
         } catch (IOException e) {
@@ -134,5 +135,21 @@ public class SheetsClient {
         int targetRow = startRow + rowIndex;
         String sheetPrefix = sheet == null ? "" : sheet + "!";
         return sheetPrefix + startCol + targetRow + ":" + endCol + targetRow;
+    }
+
+    private String normalizeAppendRange(String range) {
+        Matcher matcher = RANGE_PATTERN.matcher(range);
+        if (!matcher.matches()) {
+            return range;
+        }
+        String endRow = matcher.group("endRow");
+        if (endRow != null && !endRow.isEmpty()) {
+            return range;
+        }
+        String sheet = matcher.group("sheet");
+        String startCol = matcher.group("startCol");
+        String endCol = matcher.group("endCol");
+        String sheetPrefix = sheet == null ? "" : sheet + "!";
+        return sheetPrefix + startCol + ":" + endCol;
     }
 }
