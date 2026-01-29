@@ -4,4 +4,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 
 public interface BotNotificationPort {
     void sendMarkdown(Long chatId, String text, InlineKeyboardMarkup markup);
+
+    void sendHtml(Long chatId, String html, InlineKeyboardMarkup markup);
 }

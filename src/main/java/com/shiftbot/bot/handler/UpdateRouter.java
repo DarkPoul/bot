@@ -26,6 +26,7 @@ import com.shiftbot.state.ConversationStateStore;
 import com.shiftbot.state.CoverRequestFsm;
 import com.shiftbot.state.OnboardingFsm;
 import com.shiftbot.state.PersonalScheduleFsm;
+import com.shiftbot.util.CalendarRenderer;
 import com.shiftbot.util.MarkdownEscaper;
 import com.shiftbot.util.TimeUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -326,6 +327,7 @@ public class UpdateRouter {
                 case "schedule_view" -> sendPersonalSchedule(user, bot);
                 case "cover" -> startCoverFlow(user, bot);
                 case "requests" -> sendTmRequests(user, bot);
+                case "main_menu" -> bot.sendMarkdown(chatId, "Оберіть дію з меню нижче", mainMenu(user));
                 default -> bot.sendMarkdown(chatId, "Меню в розробці", null);
             }
         } else if (data.startsWith("location:")) {
@@ -861,7 +863,7 @@ public class UpdateRouter {
             bot.sendMarkdown(user.getUserId(), "Сервіс графіків недоступний", null);
             return;
         }
-        bot.sendMarkdown(user.getUserId(), "Оберіть місяць для перегляду:", monthPickerMarkup("schedule:view"));
+        sendPersonalScheduleMonth(user, personalScheduleService.currentMonth(), bot);
     }
 
     private void handlePersonalScheduleCallback(User user, String data, ConversationState state, BotNotificationPort bot) {
@@ -882,23 +884,12 @@ public class UpdateRouter {
             return;
         }
         if (data.startsWith("schedule:view:")) {
-            YearMonth month = monthFromCallback(data);
+            YearMonth month = monthFromScheduleViewCallback(data);
             if (month == null) {
                 bot.sendMarkdown(user.getUserId(), "Оберіть місяць для перегляду:", monthPickerMarkup("schedule:view"));
                 return;
             }
-            Optional<com.shiftbot.model.ScheduleEntry> entry = personalScheduleService.findByUserAndMonth(user.getUserId(), month);
-            if (entry.isEmpty() || entry.get().getWorkDaysCsv() == null) {
-                bot.sendMarkdown(user.getUserId(), "Графік не створено.", null);
-                return;
-            }
-            Set<Integer> workDays = personalScheduleService.workDaysFromCsv(entry.get().getWorkDaysCsv());
-            String workDaysText = workDays.isEmpty() ? "немає" : workDays.stream()
-                    .sorted()
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(","));
-            String message = "Графік: " + TimeUtils.humanMonthYear(month) + "\nWORK: " + workDaysText;
-            bot.sendMarkdown(user.getUserId(), message, null);
+            sendPersonalScheduleMonth(user, month, bot);
             return;
         }
         if (data.startsWith("schedule:confirm_off:")) {
@@ -954,12 +945,74 @@ public class UpdateRouter {
         return null;
     }
 
+    private YearMonth monthFromScheduleViewCallback(String data) {
+        String value = data.substring("schedule:view:".length());
+        if ("current".equals(value)) {
+            return personalScheduleService.currentMonth();
+        }
+        if ("next".equals(value)) {
+            return personalScheduleService.nextMonth();
+        }
+        try {
+            return YearMonth.parse(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private YearMonth monthFromState(ConversationState state) {
         String value = state.getData().get(PersonalScheduleFsm.MONTH_KEY);
         if (value == null || value.isBlank()) {
             return null;
         }
         return YearMonth.parse(value);
+    }
+
+    private void sendPersonalScheduleMonth(User user, YearMonth month, BotNotificationPort bot) {
+        if (month == null) {
+            bot.sendMarkdown(user.getUserId(), "Оберіть місяць для перегляду:", monthPickerMarkup("schedule:view"));
+            return;
+        }
+        Optional<com.shiftbot.model.ScheduleEntry> entry = personalScheduleService.findByUserAndMonth(user.getUserId(), month);
+        if (entry.isEmpty() || entry.get().getWorkDaysCsv() == null) {
+            bot.sendMarkdown(user.getUserId(),
+                    "Графік не створено. Натисніть «🗓 Створити графік», щоб заповнити календар.",
+                    scheduleMissingMarkup(month));
+            return;
+        }
+        Set<Integer> workDays = personalScheduleService.workDaysFromCsv(entry.get().getWorkDaysCsv());
+        String calendar = CalendarRenderer.renderMonth(month, workDays, new Locale("uk", "UA"));
+        String message = "Графік на " + TimeUtils.humanMonthYear(month) + "\n<pre>" + calendar + "</pre>";
+        bot.sendHtml(user.getUserId(), message, scheduleViewMarkup(month));
+    }
+
+    private InlineKeyboardMarkup scheduleViewMarkup(YearMonth month) {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        YearMonth prev = month.minusMonths(1);
+        YearMonth next = month.plusMonths(1);
+        List<InlineKeyboardButton> navRow = new ArrayList<>();
+        navRow.add(InlineKeyboardButton.builder()
+                .text("◀️ Попередній")
+                .callbackData("schedule:view:" + prev)
+                .build());
+        navRow.add(InlineKeyboardButton.builder()
+                .text("Наступний ▶️")
+                .callbackData("schedule:view:" + next)
+                .build());
+        rows.add(navRow);
+        rows.add(buttonRow("🔙 Назад", "M::main_menu"));
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup scheduleMissingMarkup(YearMonth month) {
+        InlineKeyboardMarkup markup = scheduleViewMarkup(month);
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(buttonRow("🗓 Створити графік", "M::schedule_edit"));
+        rows.addAll(markup.getKeyboard());
+        markup.setKeyboard(rows);
+        return markup;
     }
 
     private String summaryMessage(YearMonth month, Set<Integer> workDays) {

@@ -137,6 +137,11 @@ abstract class FlowTestSupport {
             messages.add(new SentMessage(chatId, text, markup));
         }
 
+        @Override
+        public void sendHtml(Long chatId, String html, InlineKeyboardMarkup markup) {
+            messages.add(new SentMessage(chatId, html, markup));
+        }
+
         public List<SentMessage> getMessages() {
             return messages;
         }
