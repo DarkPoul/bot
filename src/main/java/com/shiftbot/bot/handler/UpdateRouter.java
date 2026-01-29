@@ -171,6 +171,27 @@ public class UpdateRouter {
         this.adminTelegramId = adminTelegramId;
     }
 
+    public UpdateRouter(AuthService authService, ScheduleService scheduleService, RequestService requestService, AccessRequestService accessRequestService, LocationsRepository locationsRepository, UsersRepository usersRepository, LocationAssignmentsRepository locationAssignmentsRepository, PersonalScheduleService personalScheduleService, SubstitutionService substitutionService, CalendarKeyboardBuilder calendarKeyboardBuilder, ConversationStateStore stateStore, CoverRequestFsm coverRequestFsm, OnboardingFsm onboardingFsm, PersonalScheduleFsm personalScheduleFsm, AuditService auditService, ZoneId zoneId, long l, AuthService authService1, ScheduleService scheduleService1, RequestService requestService1, AccessRequestService accessRequestService1, LocationsRepository locationsRepository1, UsersRepository usersRepository1, LocationAssignmentsRepository locationAssignmentsRepository1, PersonalScheduleService personalScheduleService1, SubstitutionService substitutionService1, CalendarKeyboardBuilder calendarKeyboardBuilder1, ConversationStateStore stateStore1, CoverRequestFsm coverRequestFsm1, OnboardingFsm onboardingFsm1, PersonalScheduleFsm personalScheduleFsm1, SubstitutionRequestFsm substitutionRequestFsm, AuditService auditService1, ZoneId zoneId1, Long adminTelegramId) {
+        this.authService = authService1;
+        this.scheduleService = scheduleService1;
+        this.requestService = requestService1;
+        this.accessRequestService = accessRequestService1;
+        this.locationsRepository = locationsRepository1;
+        this.usersRepository = usersRepository1;
+        this.locationAssignmentsRepository = locationAssignmentsRepository1;
+        this.personalScheduleService = personalScheduleService1;
+        this.substitutionService = substitutionService1;
+        this.calendarKeyboardBuilder = calendarKeyboardBuilder1;
+        this.stateStore = stateStore1;
+        this.coverRequestFsm = coverRequestFsm1;
+        this.onboardingFsm = onboardingFsm1;
+        this.personalScheduleFsm = personalScheduleFsm1;
+        this.substitutionRequestFsm = substitutionRequestFsm;
+        this.auditService = auditService1;
+        this.zoneId = zoneId1;
+        this.adminTelegramId = adminTelegramId;
+    }
+
     public void handle(Update update, BotNotificationPort bot) {
         if (update.hasMessage() && update.getMessage().hasText()) {
             handleMessage(update.getMessage(), bot);

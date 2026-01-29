@@ -6,10 +6,7 @@ import com.shiftbot.bot.ui.CalendarKeyboardBuilder;
 import com.shiftbot.config.EnvironmentConfig;
 import com.shiftbot.repository.*;
 import com.shiftbot.service.*;
-import com.shiftbot.state.ConversationStateStore;
-import com.shiftbot.state.CoverRequestFsm;
-import com.shiftbot.state.OnboardingFsm;
-import com.shiftbot.state.PersonalScheduleFsm;
+import com.shiftbot.state.*;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import org.slf4j.Logger;
@@ -44,10 +41,13 @@ public class Application {
         PersonalScheduleService personalScheduleService = new PersonalScheduleService(schedulesRepository, config.getZoneId());
         CalendarKeyboardBuilder calendarKeyboardBuilder = new CalendarKeyboardBuilder();
 
+        SubstitutionRequestFsm substitutionRequestFsm = new SubstitutionRequestFsm();
+
         UpdateRouter updateRouter = new UpdateRouter(authService, scheduleService, requestService, accessRequestService, locationsRepository,
                 usersRepository, locationAssignmentsRepository, personalScheduleService, substitutionService, calendarKeyboardBuilder, stateStore,
-                new CoverRequestFsm(), new OnboardingFsm(), new com.shiftbot.state.PersonalScheduleFsm(), auditService,
+                new CoverRequestFsm(), new OnboardingFsm(), new com.shiftbot.state.PersonalScheduleFsm(), substitutionRequestFsm, auditService,
                 config.getZoneId(), Long.parseLong(config.getAdminTelegramId()));
+
         ShiftSchedulerBot bot = new ShiftSchedulerBot(config.getBotToken(), config.getBotUsername(), updateRouter);
         auditService.setBot(bot);
 
