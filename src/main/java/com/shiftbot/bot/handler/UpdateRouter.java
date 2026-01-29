@@ -844,7 +844,7 @@ public class UpdateRouter {
             bot.sendMarkdown(user.getUserId(), parseResult.errorMessage(), null);
             return true;
         }
-        if (parseResult.empty()) {
+        if (parseResult.isEmpty()) {
             state.getData().put(PersonalScheduleFsm.STEP_KEY, PersonalScheduleFsm.Step.WAIT_CONFIRM_ALL_OFF.name());
             state.getData().put(PersonalScheduleFsm.MONTH_KEY, month.toString());
             bot.sendMarkdown(user.getUserId(), "Ви не ввели жодного робочого дня. Зберегти весь місяць як OFF?", confirmAllOffMarkup(state));

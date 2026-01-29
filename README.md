@@ -19,7 +19,7 @@
 ## Налаштування Google Sheets
 1. Створіть Google Spreadsheet з листами та колонками:
    - `users`: `userId, username, fullName, locationId, phone, role, status, createdAt, createdBy`
-   - `locations`: `locationId, name, address, active`
+     - `locations`: `locationId, name, address, active`
    - `location_assignments`: `locationId, userId, isPrimary, activeFrom, activeTo`
    - `tm_locations`: `tmUserId, locationId`
    - `shifts`: `shiftId, date, startTime, endTime, locationId, userId, status, source, linkedRequestId, updatedAt`

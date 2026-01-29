@@ -2,4 +2,7 @@
 /.idea
 /.mvn
 *.iml
+.env
+credentials/
+*.json
 secrets/

@@ -108,7 +108,12 @@ public class PersonalScheduleService {
                 .collect(Collectors.joining(","));
     }
 
-    public record ParseResult(Set<Integer> workDays, String errorMessage, boolean empty) {
+    public record ParseResult(Set<Integer> workDays, String errorMessage, boolean isEmpty) {
+
+        public static ParseResult empty() {
+            return new ParseResult(Collections.emptySet(), null, true);
+        }
+
         public static ParseResult valid(Set<Integer> days) {
             return new ParseResult(days, null, false);
         }
@@ -117,8 +122,9 @@ public class PersonalScheduleService {
             return new ParseResult(Collections.emptySet(), message, false);
         }
 
-        public static ParseResult empty() {
-            return new ParseResult(Collections.emptySet(), null, true);
+        public ParseResult {
+            java.util.Objects.requireNonNull(workDays, "workDays cannot be null");
         }
     }
+
 }

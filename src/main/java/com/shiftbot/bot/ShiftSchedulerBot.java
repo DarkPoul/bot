@@ -1,14 +1,15 @@
 package com.shiftbot.bot;
 
 import com.shiftbot.bot.handler.UpdateRouter;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class ShiftSchedulerBot extends TelegramLongPollingBot implements BotNotificationPort {
     private static final Logger log = LoggerFactory.getLogger(ShiftSchedulerBot.class);
@@ -41,7 +42,8 @@ public class ShiftSchedulerBot extends TelegramLongPollingBot implements BotNoti
     public void sendMarkdown(Long chatId, String text, InlineKeyboardMarkup markup) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
-        message.setText(text);
+        // Екрануємо текст для MarkdownV2, щоб уникнути помилок з символами на кшталт '!'
+        message.setText(escapeMarkdownV2(text));
         message.setParseMode(ParseMode.MARKDOWNV2);
         if (markup != null) {
             message.setReplyMarkup(markup);
@@ -52,4 +54,28 @@ public class ShiftSchedulerBot extends TelegramLongPollingBot implements BotNoti
             log.error("Failed to send message", e);
         }
     }
+
+    private String escapeMarkdownV2(String text) {
+        if (text == null) return null;
+        return text.replace("\\", "\\\\") // <-- ДОДАТИ ПЕРШИМ
+                .replace("_", "\\_")
+                .replace("*", "\\*")
+                .replace("[", "\\[")
+                .replace("]", "\\]")
+                .replace("(", "\\(")
+                .replace(")", "\\)")
+                .replace("~", "\\~")
+                .replace("`", "\\`")
+                .replace(">", "\\>")
+                .replace("#", "\\#")
+                .replace("+", "\\+")
+                .replace("-", "\\-")
+                .replace("=", "\\=")
+                .replace("|", "\\|")
+                .replace("{", "\\{")
+                .replace("}", "\\}")
+                .replace(".", "\\.")
+                .replace("!", "\\!");
+    }
+
 }
