@@ -55,6 +55,22 @@ public class ShiftSchedulerBot extends TelegramLongPollingBot implements BotNoti
         }
     }
 
+    @Override
+    public void sendHtml(Long chatId, String html, InlineKeyboardMarkup markup) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(html);
+        message.setParseMode(ParseMode.HTML);
+        if (markup != null) {
+            message.setReplyMarkup(markup);
+        }
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            log.error("Failed to send message", e);
+        }
+    }
+
     private String escapeMarkdownV2(String text) {
         if (text == null) return null;
         return text.replace("\\", "\\\\") // <-- ДОДАТИ ПЕРШИМ
