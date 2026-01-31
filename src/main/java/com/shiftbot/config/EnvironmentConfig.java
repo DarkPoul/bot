@@ -18,16 +18,22 @@ public class EnvironmentConfig {
     private final String auditGroupId;
     private final String adminTelegramId;
     private final ZoneId zoneId;
+    private final StorageType storageType;
+    private final String dbPath;
+    private final String locationsSeed;
 
     public EnvironmentConfig() {
         loadDotEnv(); // Завантажуємо .env файл при ініціалізації
         
         this.botToken = requiredEnv("BOT_TOKEN");
         this.botUsername = requiredEnv("BOT_USERNAME");
-        this.spreadsheetId = requiredEnv("SPREADSHEET_ID");
-        this.credentialsPath = requiredEnv("GOOGLE_APPLICATION_CREDENTIALS");
+        this.storageType = StorageType.from(getEnvOrDefault("STORAGE", "sqlite"));
+        this.dbPath = getEnvOrDefault("DB_PATH", "/data/bot.db");
+        this.spreadsheetId = getEnvValue("SPREADSHEET_ID");
+        this.credentialsPath = getEnvValue("GOOGLE_APPLICATION_CREDENTIALS");
         this.auditGroupId = requiredEnv("AUDIT_GROUP_ID");
         this.adminTelegramId = requiredEnv("ADMIN_TELEGRAM_ID");
+        this.locationsSeed = getEnvValue("LOCATIONS_SEED");
         
         String tz = getEnvOrDefault("TZ", "Europe/Kyiv");
         this.zoneId = ZoneId.of(tz);
@@ -107,5 +113,17 @@ public class EnvironmentConfig {
 
     public ZoneId getZoneId() {
         return zoneId;
+    }
+
+    public StorageType getStorageType() {
+        return storageType;
+    }
+
+    public String getDbPath() {
+        return dbPath;
+    }
+
+    public String getLocationsSeed() {
+        return locationsSeed;
     }
 }

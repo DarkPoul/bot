@@ -1,4 +1,4 @@
-package com.shiftbot.repository;
+package com.shiftbot.repository.sheets;
 
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.HttpTransport;

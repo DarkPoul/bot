@@ -3,6 +3,8 @@ package com.shiftbot.repository;
 import com.shiftbot.model.Request;
 import com.shiftbot.model.enums.RequestStatus;
 import com.shiftbot.model.enums.RequestType;
+import com.shiftbot.repository.sheets.SheetsClient;
+import com.shiftbot.repository.sheets.SheetsRequestsRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -24,7 +26,7 @@ class RequestsRepositoryTest {
     @Test
     void updatesExistingRow() {
         SheetsClient sheetsClient = mock(SheetsClient.class);
-        RequestsRepository repository = new RequestsRepository(sheetsClient);
+        SheetsRequestsRepository repository = new SheetsRequestsRepository(sheetsClient);
         List<List<Object>> rows = new ArrayList<>();
         rows.add(new ArrayList<>(Arrays.asList(
                 "req1", "COVER", "1", "", "", "2024-04-01", "10:00", "18:00", "loc1", "WAIT_TM", "old", Instant.EPOCH.toString(), Instant.EPOCH.toString()

@@ -41,7 +41,7 @@ public class PersonalScheduleService {
         entry.setMonth(month.getMonthValue());
         entry.setWorkDaysCsv(toCsv(workDays));
         entry.setUpdatedAt(TimeUtils.nowInstant(zoneId));
-        schedulesRepository.upsert(entry);
+        schedulesRepository.saveMonthlySchedule(userId, null, month.getYear(), month.getMonthValue(), workDays, entry.getUpdatedAt());
         return entry;
     }
 
