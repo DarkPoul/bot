@@ -5,6 +5,8 @@ services:
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       BOT_USERNAME: ${BOT_USERNAME}
+      STORAGE: ${STORAGE:-sqlite}
+      DB_PATH: ${DB_PATH:-/data/bot.db}
       SPREADSHEET_ID: ${SPREADSHEET_ID}
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa.json
       AUDIT_GROUP_ID: ${AUDIT_GROUP_ID}
@@ -12,4 +14,8 @@ services:
       TZ: ${TZ:-Europe/Kyiv}
     volumes:
       - ./secrets/sa.json:/secrets/sa.json:ro
+      - bot-data:/data
     restart: unless-stopped
+
+volumes:
+  bot-data:

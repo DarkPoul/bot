@@ -102,7 +102,7 @@ public class AccessRequestService {
         Role role = user.getRole() == null ? Role.SELLER : user.getRole();
         User updated = new User(user.getUserId(), user.getUsername(), user.getFullName(), user.getLocationId(),
                 user.getPhone(), role, status, user.getCreatedAt(), user.getCreatedBy());
-        usersRepository.updateRow(user.getUserId(), updated);
+        usersRepository.update(updated);
     }
 
     private AccessRequest load(String requestId) {

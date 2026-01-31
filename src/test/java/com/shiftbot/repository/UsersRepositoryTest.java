@@ -3,6 +3,8 @@ package com.shiftbot.repository;
 import com.shiftbot.model.User;
 import com.shiftbot.model.enums.Role;
 import com.shiftbot.model.enums.UserStatus;
+import com.shiftbot.repository.sheets.SheetsClient;
+import com.shiftbot.repository.sheets.SheetsUsersRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -29,12 +31,12 @@ class UsersRepositoryTest {
                 "1", "user1", "User One", "loc-1", "050", "TM", "PENDING", "", ""
         ));
         when(sheetsClient.readRange("users!A2:I")).thenReturn(rows);
-        UsersRepository repository = new UsersRepository(sheetsClient, Duration.ofMinutes(5));
+        SheetsUsersRepository repository = new SheetsUsersRepository(sheetsClient, Duration.ofMinutes(5));
 
         repository.findAll(); // warm cache
         User updated = new User(1L, "user1", "User One", "loc-1", "050", Role.TM, UserStatus.APPROVED, null, null);
 
-        repository.updateRow(1L, updated);
+        repository.update(updated);
 
         ArgumentCaptor<List<List<Object>>> valuesCaptor = ArgumentCaptor.forClass(List.class);
         verify(sheetsClient).updateRange(eq("users!A2:I2"), valuesCaptor.capture());
@@ -52,8 +54,10 @@ class UsersRepositoryTest {
     @Test
     void throwsWhenUserNotFound() {
         when(sheetsClient.readRange("users!A2:I")).thenReturn(Collections.emptyList());
-        UsersRepository repository = new UsersRepository(sheetsClient, Duration.ofMinutes(5));
+        SheetsUsersRepository repository = new SheetsUsersRepository(sheetsClient, Duration.ofMinutes(5));
 
-        assertThrows(IllegalArgumentException.class, () -> repository.updateRow(99L, new User()));
+        User missing = new User();
+        missing.setUserId(99L);
+        assertThrows(IllegalArgumentException.class, () -> repository.update(missing));
     }
 }

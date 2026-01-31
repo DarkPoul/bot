@@ -1,6 +1,6 @@
 # Shift Scheduler Telegram Bot
 
-Бот для керування графіками продавців, підмінами та підтвердженнями виходів. Побудовано на Java 17, Maven, Telegram Long Polling та Google Sheets як джерело даних.
+Бот для керування графіками продавців, підмінами та підтвердженнями виходів. Побудовано на Java 17, Maven, Telegram Long Polling та SQLite як основне джерело даних (із можливістю повернутись до Google Sheets через STORAGE=sheets).
 
 ## Можливості (MVP)
 - Онбординг через /start із реєстрацією користувача (статус PENDING).
@@ -12,11 +12,16 @@
 ## Архітектура
 - **bot layer**: `ShiftSchedulerBot`, `UpdateRouter`, UI‑білдери.
 - **service layer**: `AuthService`, `ScheduleService`, `RequestService`, `ReminderService`, `AuditService`.
-- **repository layer**: робота з Google Sheets через `SheetsClient` та репозиторії для кожної сутності.
+- **repository layer**: SQLite (основний) та Google Sheets (legacy, через STORAGE=sheets).
 - **state**: in‑memory FSM (`ConversationStateStore`) з TTL.
 - **utils**: календар, перевірка перетинів змін, робота з датами у TZ Europe/Kyiv.
 
-## Налаштування Google Sheets
+## Налаштування SQLite (за замовчуванням)
+- БД зберігається у файлі, шлях задається через `DB_PATH` (типово `/data/bot.db`).
+- У Docker використовується volume `bot-data` для збереження файлу між перезапусками.
+- На старті застосунок виставляє PRAGMA: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`.
+
+## Налаштування Google Sheets (опційно, STORAGE=sheets або імпорт)
 1. Створіть Google Spreadsheet з листами та колонками:
    - `users`: `userId, username, fullName, locationId, phone, role, status, createdAt, createdBy`
      - `locations`: `locationId, name, address, active`
@@ -32,24 +37,39 @@
 ## Змінні оточення
 - `BOT_TOKEN` – токен бота від BotFather.
 - `BOT_USERNAME` – username бота без @.
-- `SPREADSHEET_ID` – ID таблиці Google Sheets.
-- `GOOGLE_APPLICATION_CREDENTIALS` – шлях до service account json (в контейнері `/secrets/sa.json`).
+- `STORAGE` – тип сховища: `sqlite` (за замовчуванням) або `sheets`.
+- `DB_PATH` – шлях до SQLite файлу (типово `/data/bot.db`).
+- `SPREADSHEET_ID` – ID таблиці Google Sheets (потрібно для STORAGE=sheets або імпорту).
+- `GOOGLE_APPLICATION_CREDENTIALS` – шлях до service account json (в контейнері `/secrets/sa.json`), потрібен для Sheets.
 - `AUDIT_GROUP_ID` – ID Telegram групи для аудитів.
 - `ADMIN_TELEGRAM_ID` – Telegram ID адміністратора, який підтверджує заявки.
 - `TZ` – таймзона, за замовчуванням `Europe/Kyiv`.
+- `LOCATIONS_SEED` – початкові локації у форматі `id|name|address|active;id2|name2|address2|active` (опційно).
 
-## Запуск локально
+## Запуск локально (SQLite)
 ```bash
 mvn clean package
-BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... GOOGLE_APPLICATION_CREDENTIALS=secrets/sa.json AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 java -jar target/shift-scheduler-bot-1.0.0-shaded.jar
+BOT_TOKEN=xxx BOT_USERNAME=mybot AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 DB_PATH=./bot.db java -jar target/shift-scheduler-bot-1.0.0-shaded.jar
 ```
 
-## Запуск у Docker
+## Запуск у Docker (SQLite)
 ```bash
 docker-compose build
-BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 docker-compose up -d
+BOT_TOKEN=xxx BOT_USERNAME=mybot AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 docker-compose up -d
 ```
 Service account ключ очікується у `./secrets/sa.json`.
+
+## Перемикання на Google Sheets
+```bash
+BOT_TOKEN=xxx BOT_USERNAME=mybot STORAGE=sheets SPREADSHEET_ID=... GOOGLE_APPLICATION_CREDENTIALS=secrets/sa.json AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 java -jar target/shift-scheduler-bot-1.0.0-shaded.jar
+```
+
+## Імпорт даних з Google Sheets у SQLite
+```bash
+BOT_TOKEN=xxx BOT_USERNAME=mybot SPREADSHEET_ID=... GOOGLE_APPLICATION_CREDENTIALS=secrets/sa.json AUDIT_GROUP_ID=-100123 ADMIN_TELEGRAM_ID=123456 \\
+  java -jar target/shift-scheduler-bot-1.0.0-shaded.jar --import-from-sheets
+```
+Для dry-run додайте `--dry-run`.
 
 ## Команди та UI
 - `/start` – онбординг та головне меню.

@@ -3,6 +3,8 @@ package com.shiftbot.repository;
 import com.shiftbot.model.Request;
 import com.shiftbot.model.enums.RequestStatus;
 import com.shiftbot.model.enums.RequestType;
+import com.shiftbot.repository.sheets.SheetsClient;
+import com.shiftbot.repository.sheets.SheetsRequestsRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -22,7 +24,7 @@ class RequestsRepositorySwapTest {
     @Test
     void mapsSwapRequest() {
         SheetsClient sheetsClient = Mockito.mock(SheetsClient.class);
-        RequestsRepository repository = new RequestsRepository(sheetsClient);
+        SheetsRequestsRepository repository = new SheetsRequestsRepository(sheetsClient);
 
         List<Object> row = List.of("req1", "SWAP", "10", "10", "20", "2024-04-10", "09:00", "18:00", "loc1", "WAIT_PEER", "comment", "2024-04-01T10:00:00Z", "2024-04-01T10:00:00Z");
         when(sheetsClient.readRange(anyString())).thenReturn(List.of(row));
@@ -37,7 +39,7 @@ class RequestsRepositorySwapTest {
     @Test
     void savesSwapRequest() {
         SheetsClient sheetsClient = Mockito.mock(SheetsClient.class);
-        RequestsRepository repository = new RequestsRepository(sheetsClient);
+        SheetsRequestsRepository repository = new SheetsRequestsRepository(sheetsClient);
 
         Request request = new Request();
         request.setRequestId("req-new");
